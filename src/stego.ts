@@ -186,13 +186,73 @@ function decoder64(s: string, tab: Theme): Uint8Array | null {
   return bytes;
 }
 
+// ── Model 256: one token per byte (emoji, etc.) ─────────
+
+function encoder256(b: Uint8Array, tab: Theme): string {
+  const t = tab.tab256!;
+  const seps = tab.sep ?? [' '];
+  let o = '';
+  for (let i = 0; i < b.length; i++) {
+    o += t[b[i]];
+    o += seps[Math.floor(Math.random() * seps.length)];
+  }
+  return tab.pre + o + tab.end;
+}
+
+function decoder256(s: string, tab: Theme): Uint8Array | null {
+  const normalized = normalizeForDecode(s);
+  const normalizedPre = tab.pre.replace(/\uFE0F/g, '');
+  const normalizedEnd = tab.end.replace(/\uFE0F/g, '');
+
+  let remainder = normalized;
+  if (normalizedPre && !remainder.startsWith(normalizedPre)) return null;
+  remainder = remainder.substring(normalizedPre.length);
+
+  // Remove suffix if present
+  if (normalizedEnd && remainder.endsWith(normalizedEnd)) {
+    remainder = remainder.substring(0, remainder.length - normalizedEnd.length);
+  }
+
+  // Strip cosmetic separators (spaces)
+  remainder = remainder.replace(/ /g, '');
+
+  // Build reverse lookup (normalized)
+  const t = tab.tab256!;
+  const lookup = new Map<string, number>();
+  for (let i = 0; i < t.length; i++) {
+    lookup.set(t[i].replace(/\uFE0F/g, ''), i);
+  }
+
+  // Greedy match: try longest possible tokens first
+  const maxLen = Math.max(...Array.from(lookup.keys()).map(k => k.length));
+  const out: number[] = [];
+  let i = 0;
+  let safety = 10000;
+  while (--safety && i < remainder.length) {
+    let found = false;
+    for (let len = maxLen; len >= 1; len--) {
+      const candidate = remainder.substring(i, i + len);
+      const idx = lookup.get(candidate);
+      if (idx !== undefined) {
+        out.push(idx);
+        i += len;
+        found = true;
+        break;
+      }
+    }
+    if (!found) return null;
+  }
+  if (out.length === 0) return null;
+  return new Uint8Array(out);
+}
+
 // ── Dispatch ────────────────────────────────────────────
 
 type Encoder = (b: Uint8Array, tab: Theme) => string;
 type Decoder = (s: string, tab: Theme) => Uint8Array | null;
 
-const ENCODERS: Record<number, Encoder> = { 0: encoder0, 1: encoder1, 16: encoder16, 64: encoder64 };
-const DECODERS: Record<number, Decoder> = { 0: decoder0, 1: decoder1, 16: decoder16, 64: decoder64 };
+const ENCODERS: Record<number, Encoder> = { 0: encoder0, 1: encoder1, 16: encoder16, 64: encoder64, 256: encoder256 };
+const DECODERS: Record<number, Decoder> = { 0: decoder0, 1: decoder1, 16: decoder16, 64: decoder64, 256: decoder256 };
 
 /** Encode bytes to themed steganographic text. */
 export function stegoEncode(bytes: Uint8Array, themeId: ThemeId): string {

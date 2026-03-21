@@ -1,10 +1,10 @@
 /** Theme definitions for steganographic encoding. */
 
-export type ThemeId = 'БОЖЕ' | 'РОССИЯ' | 'СССР' | 'БУХАЮ' | 'КИТАЙ' | 'hex';
+export type ThemeId = 'БОЖЕ' | 'РОССИЯ' | 'СССР' | 'БУХАЮ' | 'КИТАЙ' | 'hex' | 'PATER' | '🙂';
 
 export interface Theme {
   readonly id: ThemeId;
-  readonly model: 0 | 1 | 16 | 64;
+  readonly model: 0 | 1 | 16 | 64 | 256;
   readonly pre: string;
   readonly end: string;
   readonly rand: number;
@@ -12,6 +12,9 @@ export interface Theme {
   readonly tab2?: readonly string[];
   readonly tab3?: readonly string[];
   readonly base?: number;
+  /** model-256: 256 tokens, one per byte value. sep = cosmetic separator. */
+  readonly tab256?: readonly string[];
+  readonly sep?: readonly string[];
 }
 
 const BOZHE: Theme = {
@@ -100,6 +103,53 @@ const BUKHAYU: Theme = {
   ],
 } as const;
 
+const PATER: Theme = {
+  id: 'PATER',
+  model: 64,
+  rand: 0.8,
+  pre: 'Oremus',
+  end: '. Amen.',
+  tab1: [' et ', ' ac ', ', ', ' sed '],
+  tab2: ['. Qui ', '. Non ', '? At ', ' — '],
+  tab3: (
+    'Dominus Deus spiritus sanctus peccator angelus diabolus caelum '
+    + 'infernus pax bellum rex sacerdos propheta apostolus fidelis '
+    + 'spes caritas gratia misericordia iustitia veritas lux tenebrae '
+    + 'vita mors crux sanguis agnus ovis pastor ecclesia '
+    + 'resurrectio paenitentia confessio communio benedictio maledictio laudat orat '
+    + 'cantat adorat servit regnat salvat condemnat absolvit iudicat '
+    + 'creat liberat sanctificat illuminat patitur resurgit ascendit descendit '
+    + 'praedicat docet amat timet sperat credit vivit moritur'
+  ).split(' '),
+} as const;
+
+const EMOJI: Theme = {
+  id: '🙂',
+  model: 256,
+  rand: 0.7,
+  pre: '🔮',
+  end: '🔮',
+  sep: [' ', '', ' ', ''],
+  tab256: [
+    '😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩',
+    '😘','😗','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐',
+    '🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒',
+    '🤕','🤢','🤮','🥵','🥶','🥴','😵','🤯','🤠','🥳','🥸','😎','🤓','🧐','😕','😟',
+    '🙁','😮','😯','😲','😳','🥺','🥹','😦','😧','😨','😰','😥','😢','😭','😱','😖',
+    '😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀','☠️','💩','🤡',
+    '👹','👺','👻','👽','👾','🤖','😺','😸','😹','😻','😼','😽','🙀','😿','😾','🙈',
+    '🙉','🙊','💋','💌','💘','💝','💖','💗','💓','💞','💕','💟','❣️','💔','🧡','💛',
+    '💚','💙','💜','🤎','🖤','🤍','💯','💢','💥','💫','💦','💨','🕳️','💣','💬','🗨️',
+    '🗯️','💭','💤','👋','🤚','🖐️','✋','🖖','🫱','🫲','🫳','🫴','👌','🤌','🤏','✌️',
+    '🤞','🫰','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','🫵','👍','👎','✊','👊',
+    '🤛','🤜','👏','🙌','🫶','👐','🤲','🤝','🙏','✍️','💅','🤳','💪','🦾','🦿','🦵',
+    '🦶','👂','🦻','👃','🧠','🫀','🫁','🦷','🦴','👀','👁️','👅','👄','🫦','👶','🧒',
+    '👦','👧','🧑','👱','👨','🧔','👩','🧓','👴','👵','🙍','🙎','🙅','🙆','💁','🙋',
+    '🧏','🙇','🤦','🤷','👮','🕵️','💂','🥷','👷','🫅','🤴','👸','👳','👲','🧕','🤵',
+    '👰','🤰','🫃','🫄','🤱','👼','🎅','🤶','🦸','🦹','🧙','🧚','🧛','🧜','🧝','🧞',
+  ],
+} as const;
+
 const HEX: Theme = {
   id: 'hex',
   model: 0,
@@ -109,7 +159,7 @@ const HEX: Theme = {
 } as const;
 
 /** All themes in detection priority order (hex MUST be last). */
-export const THEMES: readonly Theme[] = [BOZHE, ROSSIYA, SSSR, KITAY, BUKHAYU, HEX] as const;
+export const THEMES: readonly Theme[] = [BOZHE, ROSSIYA, SSSR, KITAY, BUKHAYU, PATER, EMOJI, HEX] as const;
 
 /** Theme lookup by ID. */
 export const THEME_MAP: ReadonlyMap<ThemeId, Theme> = new Map(THEMES.map(t => [t.id, t]));
