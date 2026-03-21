@@ -172,6 +172,46 @@ textarea#input::placeholder {
   white-space: pre-line;
 }
 
+/* ── Invite token display ──────────────────────────── */
+
+.invite-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.invite-label {
+  font-size: 0.75rem;
+  color: #8e8e93;
+}
+.invite-token {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+  background: #e5e5ea;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  word-break: break-all;
+  user-select: all;
+  cursor: pointer;
+}
+.invite-link {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  color: #007aff;
+  word-break: break-all;
+  text-decoration: none;
+}
+.invite-link:hover {
+  text-decoration: underline;
+}
+.invite-copy-btn {
+  align-self: flex-start;
+  margin-top: 0.25rem;
+}
+.invite-stego {
+  user-select: all;
+  cursor: pointer;
+}
+
 /* ── Download button ───────────────────────────────── */
 
 .download-btn {

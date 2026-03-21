@@ -5,7 +5,7 @@ import { stegoEncode, stegoDecode } from './stego';
 import { serializeWire, deserializeWire, MSG_NO_SENDER, MSG_WITH_SENDER, CONTACT_TOKEN } from './wire';
 import { type ThemeId, THEMES } from './dictionaries';
 import { STORAGE, storageGet, storageSet } from './storage';
-import { u8hex, hexU8, u8eq } from './utils';
+import { u8hex, hexU8, u8eq, u8toBase64url, base64urlToU8 } from './utils';
 import {
   type Contact,
   loadContacts,
@@ -60,10 +60,30 @@ async function init(): Promise<void> {
   render();
   wireEvents();
 
+  // Check URL hash for invite token
+  checkHashInvite();
+
   // If we have a selected contact, trigger initial encode of empty/demo content
   if (inputEl.value) {
     await processInput();
   }
+}
+
+/** Check location.hash for an invite token and offer to add the contact. */
+function checkHashInvite(): void {
+  const hash = location.hash.slice(1); // remove '#'
+  if (!hash) return;
+
+  const key = tryParseInviteToken(hash);
+  if (!key) return;
+
+  // Clear hash so it doesn't trigger again on reload
+  history.replaceState(null, '', location.pathname + location.search);
+
+  // Don't add your own key
+  if (u8eq(key, myPublicKey)) return;
+
+  handleContactToken(key);
 }
 
 async function loadOrCreateIdentity(): Promise<void> {
@@ -239,6 +259,13 @@ async function processInput(): Promise<void> {
     return;
   }
 
+  // Try base64url invite token first (compact format: 45 chars)
+  const inviteContact = tryParseInviteToken(text);
+  if (inviteContact) {
+    handleContactToken(inviteContact);
+    return;
+  }
+
   // Try to decode (auto-detect theme)
   const decoded = stegoDecode(text);
   if (decoded) {
@@ -368,23 +395,100 @@ function handleContactToken(publicKey: Uint8Array): void {
   updateStatus();
 }
 
+/** Try to parse a base64url invite token. Returns the 32-byte public key or null. */
+function tryParseInviteToken(text: string): Uint8Array | null {
+  // Invite token format: base64url of [0x20][32-byte public key] = 33 bytes = 44 base64url chars
+  // Also accept just the raw base64url of the 32-byte key (43 chars)
+  const clean = text.replace(/\s/g, '');
+  if (!/^[A-Za-z0-9_-]{43,44}$/.test(clean)) return null;
+
+  try {
+    const decoded = base64urlToU8(clean);
+    if (decoded.length === 33 && decoded[0] === CONTACT_TOKEN) {
+      return decoded.slice(1);
+    }
+    if (decoded.length === 32) {
+      return decoded;
+    }
+  } catch {
+    // Not valid base64
+  }
+  return null;
+}
+
+/** Generate a compact base64url invite token for sharing. */
+function makeInviteToken(publicKey: Uint8Array): string {
+  const wire = serializeWire({ type: CONTACT_TOKEN, publicKey });
+  return u8toBase64url(wire);
+}
+
+function makeInviteLink(publicKey: Uint8Array): string {
+  const token = makeInviteToken(publicKey);
+  const base = location.origin + location.pathname;
+  return base + '#' + token;
+}
+
 function showOwnContactToken(): void {
+  const inviteLink = makeInviteLink(myPublicKey);
+  const inviteToken = makeInviteToken(myPublicKey);
   const tokenBytes = serializeWire({ type: CONTACT_TOKEN, publicKey: myPublicKey });
   const stegoText = stegoEncode(tokenBytes, selectedTheme);
-  outputEl.textContent = stegoText;
+
+  outputEl.innerHTML =
+    `<div class="invite-section">`
+    + `<div class="invite-label">Ссылка-приглашение:</div>`
+    + `<a href="${escHtml(inviteLink)}" class="invite-link">${escHtml(inviteLink)}</a>`
+    + `<button class="action-btn invite-copy-btn" data-copy="${escHtml(inviteLink)}">📋 Скопировать ссылку</button>`
+    + `<div class="invite-label">Или код для вставки:</div>`
+    + `<code class="invite-token">${escHtml(inviteToken)}</code>`
+    + `<div class="invite-label">Или в виде «${escHtml(selectedTheme)}»:</div>`
+    + `<div class="invite-stego">${escHtml(stegoText)}</div>`
+    + `</div>`;
+
+  // Wire up the copy-link button
+  outputEl.querySelector('.invite-copy-btn')?.addEventListener('click', async (e) => {
+    const link = (e.target as HTMLElement).dataset.copy!;
+    try {
+      await navigator.clipboard.writeText(link);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = link;
+      ta.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    const btn = e.target as HTMLButtonElement;
+    btn.textContent = '✓ Скопировано';
+    setTimeout(() => { btn.textContent = '📋 Скопировать ссылку'; }, 1500);
+  });
+
   inputEl.value = '';
   updateStatus('мой контакт');
 }
 
 function handleAddContact(): void {
-  const hex = prompt('Вставьте ключ контакта (hex):');
-  if (!hex) return;
-  const clean = hex.replace(/\s/g, '').toUpperCase();
-  if (!/^[0-9A-F]{64}$/.test(clean)) {
-    showError('Неверный формат ключа (ожидается 64 шестнадцатеричных символа)');
+  const input = prompt('Вставьте приглашение или ключ контакта:');
+  if (!input) return;
+  const clean = input.trim();
+
+  // Try base64url invite token
+  let key = tryParseInviteToken(clean);
+
+  // Try hex (64 hex chars = 32 bytes)
+  if (!key) {
+    const hexClean = clean.replace(/\s/g, '').toUpperCase();
+    if (/^[0-9A-F]{64}$/.test(hexClean)) {
+      key = hexU8(hexClean);
+    }
+  }
+
+  if (!key) {
+    showError('Неверный формат (вставьте приглашение или 64 hex-символа)');
     return;
   }
-  const key = hexU8(clean);
+
   if (findContactByKey(key)) {
     showError('Этот контакт уже добавлен');
     return;
