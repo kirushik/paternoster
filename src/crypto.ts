@@ -2,7 +2,7 @@ import { concatU8 } from './utils';
 
 const SALT_PREFIX = new TextEncoder().encode('paternoster-v2');
 export const SEED_LENGTH = 6;
-const TAG_LENGTH = 96; // bits (12 bytes)
+const TAG_LENGTH = 64; // bits (8 bytes) — safe for manual copy-paste (no decryption oracle)
 const OKM_LENGTH = 44; // 32-byte key + 12-byte IV
 
 /** Class constants for KDF domain separation (not transmitted on wire). */
@@ -186,4 +186,91 @@ export async function decrypt(
 /** Extract compression mode from seed byte 0 (top 2 bits). */
 export function seedCompMode(seedByte0: number): number {
   return (seedByte0 >> 6) & 0x03;
+}
+
+// ── Seedless INTRO encrypt/decrypt ──────────────────────
+// INTRO uses a fresh ephemeral key per message, so the ECDH shared secret
+// is already unique. No per-message seed needed — fixed HKDF salt suffices.
+
+/**
+ * Derive key+IV for INTRO (no per-message seed — ephemeral ECDH provides uniqueness).
+ */
+async function deriveKeyIVIntro(
+  sharedBits: ArrayBuffer,
+  dirByte: number,
+): Promise<{ key: CryptoKey; iv: Uint8Array }> {
+  const info = new Uint8Array([CLASS_INTRO, dirByte]);
+
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', sharedBits, 'HKDF', false, ['deriveBits'],
+  );
+  const okm = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt: SALT_PREFIX as BufferSource, info: info as BufferSource },
+    keyMaterial,
+    OKM_LENGTH * 8,
+  ));
+
+  const key = await crypto.subtle.importKey(
+    'raw', okm.slice(0, 32) as BufferSource,
+    { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
+  );
+  const iv = okm.slice(32, 44);
+
+  return { key, iv };
+}
+
+/**
+ * Encrypt for INTRO (seedless). Returns [ciphertext+tag] only — no seed prefix.
+ * Plaintext should be [compMode:1][sender_pub:32][compressed_msg].
+ */
+export async function encryptIntro(
+  plaintext: Uint8Array,
+  myPrivateKey: Uint8Array,
+  theirPublicKey: Uint8Array,
+  senderPub: Uint8Array,
+  recipientPub: Uint8Array,
+): Promise<Uint8Array> {
+  const myKey = await importPrivateKey(myPrivateKey);
+  const theirKey = await importPublicKey(theirPublicKey);
+  const sharedBits = await crypto.subtle.deriveBits(
+    { name: 'X25519', public: theirKey }, myKey, 256,
+  );
+
+  const dirByte = directionByte(senderPub, recipientPub);
+  const { key, iv } = await deriveKeyIVIntro(sharedBits, dirByte);
+
+  const aad = new Uint8Array([CLASS_INTRO]);
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv as BufferSource, tagLength: TAG_LENGTH, additionalData: aad as BufferSource },
+    key, plaintext as BufferSource,
+  );
+
+  return new Uint8Array(ciphertext);
+}
+
+/**
+ * Decrypt INTRO (seedless). Input: [ciphertext+tag] — no seed prefix.
+ */
+export async function decryptIntro(
+  data: Uint8Array,
+  myPrivateKey: Uint8Array,
+  theirPublicKey: Uint8Array,
+  senderPub: Uint8Array,
+  recipientPub: Uint8Array,
+): Promise<Uint8Array> {
+  const myKey = await importPrivateKey(myPrivateKey);
+  const theirKey = await importPublicKey(theirPublicKey);
+  const sharedBits = await crypto.subtle.deriveBits(
+    { name: 'X25519', public: theirKey }, myKey, 256,
+  );
+
+  const dirByte = directionByte(senderPub, recipientPub);
+  const { key, iv } = await deriveKeyIVIntro(sharedBits, dirByte);
+
+  const aad = new Uint8Array([CLASS_INTRO]);
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: iv as BufferSource, tagLength: TAG_LENGTH, additionalData: aad as BufferSource },
+    key, data as BufferSource,
+  );
+  return new Uint8Array(decrypted);
 }

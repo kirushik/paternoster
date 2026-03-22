@@ -22,11 +22,14 @@ export const COMP_SQUASH_ONLY = 2; // 0b10
 
 // ── CONTACT check byte ─────────────────────────────────
 
-/** Compute the check byte for a CONTACT frame. XOR-fold with salt. */
-export function contactCheckByte(pub: Uint8Array): number {
-  let check = 0x5A; // salt to avoid check=0 for zero key
-  for (let i = 0; i < pub.length; i++) check ^= pub[i];
-  return check;
+/** Compute 2 check bytes for a CONTACT frame. 1/65536 false positive rate. */
+export function contactCheckBytes(pub: Uint8Array): [number, number] {
+  let a = 0x5A, b = 0xA5;
+  for (let i = 0; i < pub.length; i++) {
+    a ^= pub[i];
+    b ^= pub[i] ^ (i & 0xFF);
+  }
+  return [a, b];
 }
 
 // ── Serialize ───────────────────────────────────────────
@@ -41,18 +44,19 @@ export function serializeIntro(ephemeralPublicKey: Uint8Array, payload: Uint8Arr
   return concatU8(ephemeralPublicKey, payload);
 }
 
-/** Serialize a CONTACT frame: pub + check byte at the end. */
+/** Serialize a CONTACT frame: pub + 2 check bytes at the end. */
 export function serializeContact(publicKey: Uint8Array): Uint8Array {
-  return concatU8(publicKey, new Uint8Array([contactCheckByte(publicKey)]));
+  const [a, b] = contactCheckBytes(publicKey);
+  return concatU8(publicKey, new Uint8Array([a, b]));
 }
 
 // ── Parse helpers (no type detection — caller tries each) ──
 
-/** Minimum MSG size: seed(6) + ciphertext(1) + tag(12) = 19 bytes. */
-const MIN_MSG_SIZE = SEED_LENGTH + 1 + 12;
+/** Minimum MSG size: seed(6) + ciphertext(1) + tag(8) = 15 bytes. */
+const MIN_MSG_SIZE = SEED_LENGTH + 1 + 8;
 
-/** Minimum INTRO size: eph_pub(32) + seed(6) + ciphertext(1) + tag(12) = 51 bytes. */
-const MIN_INTRO_SIZE = 32 + SEED_LENGTH + 1 + 12;
+/** Minimum INTRO size: eph_pub(32) + ciphertext(1) + tag(8) = 41 bytes. No seed — ephemeral ECDH provides uniqueness. */
+const MIN_INTRO_SIZE = 32 + 1 + 8;
 
 /** Check if data could be a MSG frame (length check only). */
 export function couldBeMsg(data: Uint8Array): boolean {
@@ -66,9 +70,10 @@ export function couldBeIntro(data: Uint8Array): boolean {
 
 /** Try to parse as CONTACT. Returns the 32-byte public key or null. */
 export function tryParseContact(data: Uint8Array): Uint8Array | null {
-  if (data.length !== 33) return null;
+  if (data.length !== 34) return null;
   const pub = data.slice(0, 32);
-  if (data[32] !== contactCheckByte(pub)) return null;
+  const [a, b] = contactCheckBytes(pub);
+  if (data[32] !== a || data[33] !== b) return null;
   return pub;
 }
 

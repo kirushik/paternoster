@@ -1,10 +1,10 @@
 import './style.css';
-import { checkX25519Support, generateKeyPair, encrypt, decrypt, seedCompMode, CLASS_MSG, CLASS_INTRO } from './crypto';
+import { checkX25519Support, generateKeyPair, encrypt, decrypt, encryptIntro, decryptIntro, seedCompMode, CLASS_MSG } from './crypto';
 import { compress, decompress } from './compress';
 import { stegoEncode, stegoDecode } from './stego';
 import {
   serializeMsg, serializeIntro, serializeContact,
-  couldBeMsg, couldBeIntro, splitIntro, tryParseContact, contactCheckByte,
+  couldBeMsg, couldBeIntro, splitIntro, tryParseContact, contactCheckBytes,
 } from './wire';
 import { type ThemeId, THEMES } from './dictionaries';
 import { STORAGE, storageGet, storageSet } from './storage';
@@ -587,9 +587,10 @@ async function handleEncode(plaintext: string): Promise<void> {
     let wireFrame: Uint8Array;
     if (needsIntroduction) {
       // INTRO: ephemeral key for ECDH, real sender key inside encrypted envelope
+      // Seedless: ephemeral ECDH provides per-message uniqueness. compMode inside plaintext.
       const eph = await generateKeyPair();
-      const introPayload = concatU8(myPublicKey, compressedPayload);
-      const encrypted = await encrypt(introPayload, eph.privateKey, theirKey, eph.publicKey, theirKey, CLASS_INTRO, compMode);
+      const introPayload = concatU8(new Uint8Array([compMode]), myPublicKey, compressedPayload);
+      const encrypted = await encryptIntro(introPayload, eph.privateKey, theirKey, eph.publicKey, theirKey);
       wireFrame = serializeIntro(eph.publicKey, encrypted);
     } else {
       const encrypted = await encrypt(compressedPayload, myPrivateKey, theirKey, myPublicKey, theirKey, CLASS_MSG, compMode);
@@ -712,15 +713,15 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
     }
   }
 
-  // 2. Try as INTRO: eph_pub = bytes[0:32], rest = bytes[32:]
+  // 2. Try as INTRO: eph_pub = bytes[0:32], rest = bytes[32:] (seedless — no seed on wire)
   if (couldBeIntro(bytes)) {
     const { ephPub, payload: introPayload } = splitIntro(bytes);
     try {
-      const decrypted = await decrypt(introPayload, myPrivateKey, ephPub, ephPub, myPublicKey, CLASS_INTRO);
-      if (decrypted.length < 33) throw new Error('payload too short');
-      const compMode = seedCompMode(bytes[32]); // seed starts at byte 32
-      const senderPub = decrypted.slice(0, 32);
-      const plaintext = decompress(decrypted.slice(32), compMode);
+      const decrypted = await decryptIntro(introPayload, myPrivateKey, ephPub, ephPub, myPublicKey);
+      if (decrypted.length < 34) throw new Error('payload too short'); // comp:1 + sender:32 + at least 1
+      const compMode = decrypted[0];               // first byte = compression mode
+      const senderPub = decrypted.slice(1, 33);    // bytes 1-32 = sender key
+      const plaintext = decompress(decrypted.slice(33), compMode);
       await handleDecodedIntro(senderPub, plaintext, _theme);
       return;
     } catch {
@@ -851,12 +852,14 @@ function tryParseInviteToken(text: string): Uint8Array | null {
   if (hashIdx !== -1) {
     clean = clean.slice(hashIdx + 1);
   }
-  if (!/^[A-Za-z0-9_-]{43,44}$/.test(clean)) return null;
+  if (!/^[A-Za-z0-9_-]{43,46}$/.test(clean)) return null;
 
   try {
     const decoded = base64urlToU8(clean);
-    if (decoded.length === 33 && decoded[32] === contactCheckByte(decoded.slice(0, 32))) {
-      return decoded.slice(0, 32);
+    if (decoded.length === 34) {
+      const pub = decoded.slice(0, 32);
+      const [a, b] = contactCheckBytes(pub);
+      if (decoded[32] === a && decoded[33] === b) return pub;
     }
     if (decoded.length === 32) {
       return decoded;

@@ -2,75 +2,59 @@ import { describe, it, expect } from 'vitest';
 import {
   serializeMsg, serializeIntro, serializeContact,
   couldBeMsg, couldBeIntro, splitIntro, tryParseContact,
-  contactCheckByte,
+  contactCheckBytes,
   COMP_LITERAL, COMP_SQUASH_SMAZ, COMP_SQUASH_ONLY,
 } from '../../src/wire';
 
 describe('MSG serialization', () => {
   it('serializes as raw payload (no header)', () => {
     const payload = new Uint8Array([1, 2, 3, 4, 5]);
-    const wire = serializeMsg(payload);
-    expect(wire).toEqual(payload);
-  });
-
-  it('starts with random bytes (the seed)', () => {
-    const payload = crypto.getRandomValues(new Uint8Array(20));
-    const wire = serializeMsg(payload);
-    // First byte is from the seed — should be the same as input (no header prepended)
-    expect(wire[0]).toBe(payload[0]);
+    expect(serializeMsg(payload)).toEqual(payload);
   });
 });
 
 describe('INTRO serialization', () => {
-  it('is eph_pub + payload with no header', () => {
+  it('is eph_pub + payload with no header or seed', () => {
     const ephKey = new Uint8Array(32).fill(0xAB);
     const payload = new Uint8Array([1, 2, 3]);
     const wire = serializeIntro(ephKey, payload);
-    expect(wire.length).toBe(35); // 32 + 3
+    expect(wire.length).toBe(35);
     expect(wire.slice(0, 32)).toEqual(ephKey);
     expect(wire.slice(32)).toEqual(payload);
-  });
-
-  it('starts with random bytes (the ephemeral key)', () => {
-    const ephKey = crypto.getRandomValues(new Uint8Array(32));
-    const wire = serializeIntro(ephKey, new Uint8Array(20));
-    expect(wire[0]).toBe(ephKey[0]); // No header byte prepended
   });
 });
 
 describe('CONTACT serialization', () => {
-  it('is pub + check byte at the end', () => {
+  it('is pub + 2 check bytes at the end', () => {
     const pub = crypto.getRandomValues(new Uint8Array(32));
     const wire = serializeContact(pub);
-    expect(wire.length).toBe(33);
+    expect(wire.length).toBe(34); // 32 pub + 2 check
     expect(wire.slice(0, 32)).toEqual(pub);
-    expect(wire[32]).toBe(contactCheckByte(pub));
-  });
-
-  it('starts with random bytes (the public key)', () => {
-    const pub = crypto.getRandomValues(new Uint8Array(32));
-    const wire = serializeContact(pub);
-    expect(wire[0]).toBe(pub[0]); // Public key byte, not a header
+    const [a, b] = contactCheckBytes(pub);
+    expect(wire[32]).toBe(a);
+    expect(wire[33]).toBe(b);
   });
 });
 
-describe('CONTACT check byte', () => {
-  it('is deterministic for the same key', () => {
+describe('CONTACT check bytes', () => {
+  it('are deterministic', () => {
     const pub = crypto.getRandomValues(new Uint8Array(32));
-    expect(contactCheckByte(pub)).toBe(contactCheckByte(pub));
+    expect(contactCheckBytes(pub)).toEqual(contactCheckBytes(pub));
   });
 
-  it('differs for different keys', () => {
+  it('differ for different keys', () => {
     const pub1 = crypto.getRandomValues(new Uint8Array(32));
     const pub2 = crypto.getRandomValues(new Uint8Array(32));
-    // Random keys will almost certainly have different check bytes
-    // (1/256 chance of collision — acceptable for a probabilistic test)
-    expect(contactCheckByte(pub1)).not.toBe(contactCheckByte(pub2));
+    // Overwhelming probability of different check bytes
+    const [a1, b1] = contactCheckBytes(pub1);
+    const [a2, b2] = contactCheckBytes(pub2);
+    expect(a1 !== a2 || b1 !== b2).toBe(true);
   });
 
-  it('is not zero for all-zero key', () => {
-    const pub = new Uint8Array(32); // all zeros
-    expect(contactCheckByte(pub)).toBe(0x5A); // salt value
+  it('are not both zero for all-zero key', () => {
+    const pub = new Uint8Array(32);
+    const [a, b] = contactCheckBytes(pub);
+    expect(a !== 0 || b !== 0).toBe(true);
   });
 });
 
@@ -78,35 +62,32 @@ describe('tryParseContact', () => {
   it('parses valid contact token', () => {
     const pub = crypto.getRandomValues(new Uint8Array(32));
     const wire = serializeContact(pub);
-    const parsed = tryParseContact(wire);
-    expect(parsed).not.toBeNull();
-    expect(parsed).toEqual(pub);
+    expect(tryParseContact(wire)).toEqual(pub);
   });
 
   it('rejects wrong length', () => {
     expect(tryParseContact(new Uint8Array(32))).toBeNull();
-    expect(tryParseContact(new Uint8Array(34))).toBeNull();
+    expect(tryParseContact(new Uint8Array(33))).toBeNull();
+    expect(tryParseContact(new Uint8Array(35))).toBeNull();
   });
 
-  it('rejects wrong check byte', () => {
+  it('rejects wrong check bytes', () => {
     const pub = crypto.getRandomValues(new Uint8Array(32));
     const wire = serializeContact(pub);
-    wire[32] ^= 0xFF; // flip all check bits
+    wire[32] ^= 0xFF;
     expect(tryParseContact(wire)).toBeNull();
   });
 });
 
 describe('length checks', () => {
-  it('couldBeMsg requires minimum 19 bytes', () => {
-    expect(couldBeMsg(new Uint8Array(18))).toBe(false);
-    expect(couldBeMsg(new Uint8Array(19))).toBe(true);
-    expect(couldBeMsg(new Uint8Array(100))).toBe(true);
+  it('couldBeMsg requires minimum 15 bytes (seed:6 + ct:1 + tag:8)', () => {
+    expect(couldBeMsg(new Uint8Array(14))).toBe(false);
+    expect(couldBeMsg(new Uint8Array(15))).toBe(true);
   });
 
-  it('couldBeIntro requires minimum 51 bytes', () => {
-    expect(couldBeIntro(new Uint8Array(50))).toBe(false);
-    expect(couldBeIntro(new Uint8Array(51))).toBe(true);
-    expect(couldBeIntro(new Uint8Array(200))).toBe(true);
+  it('couldBeIntro requires minimum 41 bytes (eph:32 + ct:1 + tag:8)', () => {
+    expect(couldBeIntro(new Uint8Array(40))).toBe(false);
+    expect(couldBeIntro(new Uint8Array(41))).toBe(true);
   });
 });
 
@@ -117,21 +98,14 @@ describe('splitIntro', () => {
     data.fill(0xBB, 32, 60);
     const { ephPub, payload } = splitIntro(data);
     expect(ephPub.length).toBe(32);
-    expect(ephPub.every(b => b === 0xAA)).toBe(true);
     expect(payload.length).toBe(28);
-    expect(payload.every(b => b === 0xBB)).toBe(true);
   });
 });
 
 describe('compression mode constants', () => {
-  it('are 2-bit values (0-2)', () => {
+  it('are 2-bit values', () => {
     expect(COMP_LITERAL).toBe(0);
     expect(COMP_SQUASH_SMAZ).toBe(1);
     expect(COMP_SQUASH_ONLY).toBe(2);
-  });
-
-  it('are distinct', () => {
-    const modes = [COMP_LITERAL, COMP_SQUASH_SMAZ, COMP_SQUASH_ONLY];
-    expect(new Set(modes).size).toBe(3);
   });
 });

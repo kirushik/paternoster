@@ -8,7 +8,7 @@ Encrypted data is indistinguishable from random bytes — compressors can't find
 
 ## Compression Modes
 
-The compression mode is embedded in the top 2 bits of seed[0] (the first byte of the encrypted payload on the wire). These bits are part of the HKDF salt, so tampering changes the derived key → decryption fails (effectively authenticated without a separate header byte).
+For MSG frames, the compression mode is embedded in the top 2 bits of seed[0]. These bits are part of the HKDF salt, so tampering changes the derived key → decryption fails. For INTRO frames (seedless), the compression mode is the first byte of the encrypted plaintext (authenticated by GCM).
 
 | seed[0] bits 7-6 | Mode | When used |
 |---|---|---|
