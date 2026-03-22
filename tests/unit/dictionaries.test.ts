@@ -38,12 +38,12 @@ describe('theme table sizes', () => {
     expect(t.tab2).toHaveLength(16);
   });
 
-  it('🙂 has 256 emoji entries (model 256)', () => {
+  it('🙂 has 1024 emoji chars (model 1024)', () => {
     const t = THEME_MAP.get('🙂')!;
-    expect(t.tab256).toHaveLength(256);
+    expect([...t.chars!]).toHaveLength(1024);
   });
 
-  it('КИТАЙ has base set (model 1)', () => {
+  it('КИТАЙ has base set (model 4096)', () => {
     const t = THEME_MAP.get('КИТАЙ')!;
     expect(t.base).toBe(0x4E00);
   });
@@ -75,9 +75,10 @@ describe('token uniqueness', () => {
         checkUniqueness(theme.tab3!, `${theme.id}.tab3`);
       });
     }
-    if (theme.tab256) {
-      it(`${theme.id} tab256 tokens are unique`, () => {
-        checkUniqueness(theme.tab256!, `${theme.id}.tab256`);
+    if (theme.chars) {
+      it(`${theme.id} chars tokens are unique`, () => {
+        const chars = [...theme.chars!];
+        checkUniqueness(chars, `${theme.id}.chars`);
       });
     }
   }
@@ -124,13 +125,33 @@ describe('prefix-free property', () => {
       });
     }
 
-    // For model-256: tab256 must be prefix-free
-    if (theme.model === 256 && theme.tab256) {
-      it(`${theme.id} tab256 is prefix-free`, () => {
-        checkPrefixFree(theme.tab256!, `${theme.id}.tab256`);
+    // For model-1024: chars must be unique (single-codepoint, so prefix-free by definition)
+    if (theme.model === 1024 && theme.chars) {
+      it(`${theme.id} chars are all single codepoints`, () => {
+        const chars = [...theme.chars!];
+        for (const ch of chars) {
+          expect([...ch]).toHaveLength(1);
+        }
       });
     }
   }
+});
+
+describe('emoji token uniqueness across themes', () => {
+  it('model-16 tab1 emoji do not overlap between themes', () => {
+    const model16 = THEMES.filter(t => t.model === 16 && t.tab1);
+    const all = new Map<string, string>(); // normalized emoji → theme id
+    for (const theme of model16) {
+      for (const token of theme.tab1!) {
+        const norm = stripFE0F(token).trim();
+        if (/^[\p{L}\p{N}]/u.test(norm)) continue; // skip text tokens
+        if (all.has(norm)) {
+          throw new Error(`Emoji "${token}" in ${theme.id} tab1 also in ${all.get(norm)} tab1`);
+        }
+        all.set(norm, theme.id);
+      }
+    }
+  });
 });
 
 describe('theme ordering', () => {

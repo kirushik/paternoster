@@ -26,12 +26,9 @@ describe('stego roundtrip per theme', () => {
         expect(decoded!.bytes).toEqual(input);
       });
 
-      it('roundtrips short data (3 bytes)', () => {
-        // 3 bytes = 6 nibble tokens (model 16) or 6 connector+word pairs (model 64).
-        // Enough tokens to include theme-specific vocabulary for unambiguous detection.
-        // (1-byte messages can be ambiguous between themes with overlapping token sets.)
+      it('roundtrips short data (1 byte)', () => {
         for (const b of [0, 1, 127, 128, 255]) {
-          const input = new Uint8Array([b, b ^ 0xAA, b ^ 0x55]);
+          const input = new Uint8Array([b]);
           const encoded = stegoEncode(input, themeId);
           const decoded = stegoDecode(encoded);
           expect(decoded).not.toBeNull();

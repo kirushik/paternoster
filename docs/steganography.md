@@ -10,31 +10,40 @@ Raw ciphertext (hex, base64) is instantly recognizable as encrypted data. On mon
 
 Each model packs bytes into tokens differently. Higher model numbers = more tokens in the lookup table = more bits per token = shorter output.
 
-| Model | Bits/token | Tokens/byte | How it works | Used by |
+| Model | Bits/token | Ratio | How it works | Used by |
 |---|---|---|---|---|
-| 0 | 4 | 2 | Hex digits (identity transform) | hex |
-| 1 | 8 | 1 | Byte value as Unicode offset from base codepoint | КИТАЙ |
-| 16 | 4 | 2 | Each nibble → one of 16 tokens from tab1/tab2 | РОССИЯ, СССР, БУХАЮ |
-| 64 | 2+6 | 2 | Low 2 bits → connector (tab1/tab2, 4 entries), high 6 bits → word (tab3, 64 entries) | БОЖЕ, PATER |
-| 256 | 8 | 1 | Each byte → one of 256 tokens from tab256 | 🙂 (emoji) |
+| 0 | 4 | 2 tokens/byte | Hex digits (identity transform) | hex |
+| 16 | 4 | 2 tokens/byte | Each nibble → one of 16 tokens from tab1/tab2 | РОССИЯ, СССР, БУХАЮ |
+| 64 | 2+6 | 2 tokens/byte | Low 2 bits → connector (tab1/tab2), high 6 bits → word (tab3) | БОЖЕ, PATER |
+| 1024 | 10 | 4 tokens/5 bytes | 10-bit groups from a string of 1024 emoji chars | 🙂 (emoji) |
+| 4096 | 12 | 2 tokens/3 bytes | 12-bit pairs as Unicode offsets from base codepoint | КИТАЙ |
 
-**Model 1 and 256 are the most compact** (1 token per byte). Model 16 and 64 need 2 tokens per byte — output is twice as long.
+**Model 4096 is the most compact** (2 tokens per 3 bytes, ~33% shorter than 1:1). Model 1024 is also compact (4 tokens per 5 bytes, ~20% shorter). Models 16 and 64 need 2 tokens per byte.
+
+Models 1024 and 4096 prepend a 1-byte padding count before encoding. The input is padded to the chunk boundary (5 bytes for 1024, 3 bytes for 4096). The decoder strips the padding using this count byte.
 
 ## Randomization (the `rand` field)
 
 Models 16 and 64 randomly switch between `tab1` and `tab2` for the same nibble/bit-group value. Both tables decode to the same value — the randomness is cosmetic. It prevents the output from looking like a repeating pattern. The `rand` parameter (0–1) controls how often switching happens. Higher = more consistent table usage; lower = more varied output.
 
+Models 1024 and 4096 insert cosmetic spaces between tokens controlled by `rand`.
+
 ## Adding a New Theme
 
-1. Choose a model (16 for word-based, 64 for connector+word, 256 for one-token-per-byte).
-2. Create the word lists: tab1/tab2 must have exactly 16 entries for model 16; 4 entries for model 64; tab3 must have 64 entries for model 64; tab256 must have 256 entries for model 256.
+1. Choose a model (16 for word-based, 64 for connector+word, 1024 for emoji/symbol, 4096 for sequential Unicode ranges).
+2. Create the token tables:
+   - Model 16: tab1/tab2 with exactly 16 entries each
+   - Model 64: tab1/tab2 with 4 entries, tab3 with 64 entries
+   - Model 1024: a `chars` string of exactly 1024 single-codepoint characters
+   - Model 4096: a `base` codepoint with 4096 sequential characters available
 3. **All tokens within a table must be unique after FE0F normalization.** The dictionary tests enforce this.
 4. **Tokens must be prefix-free within their lookup table.** No token can be a prefix of another token in the same table. The greedy decoder depends on this.
-5. Ensure your theme's token vocabulary doesn't overlap with existing themes. Auto-detection tries each decoder in order; the first one that successfully parses the input wins.
-6. Add to `THEMES` array in `dictionaries.ts` — **before `hex`** (hex must be last, it matches anything). Place more distinctive themes (unique character sets) earlier in the array.
-7. Add the theme ID to the `ThemeId` union type.
-8. Add a `lang` field if TTS should use a non-Russian voice.
-9. Run `npm test` — the stego roundtrip tests and dictionary validation tests will verify correctness.
+5. **Emoji tokens must not overlap with other themes.** РОССИЯ and СССР tab1 emoji must be disjoint from each other and from the 🙂 chars string. The dictionary tests enforce this.
+6. Ensure your theme's token vocabulary doesn't overlap with existing themes. Auto-detection tries each decoder in order; the first one that successfully parses the input wins.
+7. Add to `THEMES` array in `dictionaries.ts` — **before `hex`** (hex must be last, it matches anything). Place more distinctive themes (unique character sets) earlier in the array.
+8. Add the theme ID to the `ThemeId` union type.
+9. Add a `lang` field if TTS should use a non-Russian voice.
+10. Run `npm test` — the stego roundtrip tests and dictionary validation tests will verify correctness.
 
 ## Platform Robustness
 
@@ -49,11 +58,11 @@ Output must survive copy-paste across Telegram, VK, WhatsApp, Instagram, Twitter
 ## Files
 
 - `src/stego.ts` — encoder/decoder for all models, auto-detection dispatch
-- `src/dictionaries.ts` — theme definitions (word lists, params)
+- `src/dictionaries.ts` — theme definitions (word lists, params, emoji chars)
 
 ## Gotchas
 
 - Auto-detection iterates `THEMES` array in order, trying each decoder. First theme whose decoder successfully parses the input wins. Themes are ordered by token-set distinctiveness (most unique first) to minimize false-positive attempts.
 - Model 0 (hex) tries to decode any text as hex. That's why it must be last in the array.
 - Encoder output is non-deterministic (random tab switching, random separators). The decoder accepts output from any randomization. You can't compare two encodings of the same data for equality.
-- Model 256's greedy decoder tries longest token first. If tokens aren't prefix-free, it may match the wrong one.
+- Model 1024/4096 prepend a padding count byte. Empty input still produces tokens (encoding the padding byte).
