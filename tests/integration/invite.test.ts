@@ -5,7 +5,11 @@ import { generateKeyPair } from '../../src/crypto';
 
 // Reproduce tryParseInviteToken logic (it's in main.ts which has DOM deps, so we test the logic directly)
 function tryParseInviteToken(text: string): Uint8Array | null {
-  const clean = text.replace(/\s/g, '');
+  let clean = text.replace(/\s/g, '');
+  const hashIdx = clean.indexOf('#');
+  if (hashIdx !== -1) {
+    clean = clean.slice(hashIdx + 1);
+  }
   if (!/^[A-Za-z0-9_-]{43,44}$/.test(clean)) return null;
   try {
     const decoded = base64urlToU8(clean);
@@ -60,26 +64,55 @@ describe('invite token validation', () => {
   });
 
   it('space-stripped input that becomes valid length is accepted', () => {
-    // 'A'.repeat(43) + ' ' → strip space → 43 valid chars → parses as 32-byte key
     const result = tryParseInviteToken('A'.repeat(43) + ' ');
-    expect(result).not.toBeNull(); // this is correct behavior: whitespace is stripped
+    expect(result).not.toBeNull();
   });
 
   it('rejects 44 chars that decode to wrong type byte', () => {
     const wrongType = new Uint8Array(33);
-    wrongType[0] = 0xFF; // not CONTACT_TOKEN (0x20)
+    wrongType[0] = 0xFF;
     const token = u8toBase64url(wrongType);
     expect(tryParseInviteToken(token)).toBeNull();
   });
 });
 
-describe('invite token in URL hash', () => {
-  it('token extracted from hash fragment', async () => {
+describe('invite link URL parsing', () => {
+  it('extracts token from full HTTPS URL with hash', async () => {
     const { publicKey } = await generateKeyPair();
     const token = makeInviteToken(publicKey);
-    const hash = '#' + token;
-    const fromHash = hash.slice(1); // remove '#'
-    const parsed = tryParseInviteToken(fromHash);
-    expect(parsed).toEqual(publicKey);
+    const url = `https://example.com/paternoster/#${token}`;
+    expect(tryParseInviteToken(url)).toEqual(publicKey);
+  });
+
+  it('extracts token from different domain', async () => {
+    const { publicKey } = await generateKeyPair();
+    const token = makeInviteToken(publicKey);
+    const url = `https://some-other-site.org/app#${token}`;
+    expect(tryParseInviteToken(url)).toEqual(publicKey);
+  });
+
+  it('extracts token from file:// URL', async () => {
+    const { publicKey } = await generateKeyPair();
+    const token = makeInviteToken(publicKey);
+    const url = `file:///home/user/paternoster.html#${token}`;
+    expect(tryParseInviteToken(url)).toEqual(publicKey);
+  });
+
+  it('extracts token from bare hash fragment', async () => {
+    const { publicKey } = await generateKeyPair();
+    const token = makeInviteToken(publicKey);
+    expect(tryParseInviteToken(`#${token}`)).toEqual(publicKey);
+  });
+
+  it('rejects URL with invalid hash content', () => {
+    expect(tryParseInviteToken('https://example.com/#tooshort')).toBeNull();
+  });
+
+  it('rejects URL with no hash', () => {
+    expect(tryParseInviteToken('https://example.com/page')).toBeNull();
+  });
+
+  it('rejects URL with empty hash', () => {
+    expect(tryParseInviteToken('https://example.com/#')).toBeNull();
   });
 });

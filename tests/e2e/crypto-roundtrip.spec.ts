@@ -65,8 +65,17 @@ test.describe('two-party message exchange', () => {
     await alicePage.click('#save-contact-btn');
     await fillDialogAndConfirm(alicePage, { 'Имя контакта': 'Bob' });
 
-    // Step 5: Alice should now have Bob as a contact
+    // Step 5: Alice should now have Bob as a contact, selected and active
     await expect(alicePage.locator('.contact-pill', { hasText: 'Bob' })).toBeVisible();
+    await expect(alicePage.locator('.contact-pill.selected', { hasText: 'Bob' })).toBeVisible();
+
+    // Step 6: Bob's first message should appear in Alice's chat history
+    const chatMessage = alicePage.locator('.chat-message.received .chat-text');
+    await expect(chatMessage).toHaveText('Привет, Алиса!');
+
+    // Step 7: Alice's working area should be clean (input + output cleared)
+    await expect(alicePage.locator('#input')).toHaveValue('');
+    await expect(alicePage.locator('#output')).toHaveText('');
 
     await alicePage.close();
     await bobPage.close();

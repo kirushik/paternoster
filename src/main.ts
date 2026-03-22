@@ -32,7 +32,12 @@ let lastDecodedSender: string | null = null;
 let copyableText = '';
 let copyLabel = '📋 Скопировать';
 let ttsText = '';
-let pendingSenderKey: Uint8Array | null = null;
+let pendingNewContact: {
+  senderKey: Uint8Array;
+  plaintext: string;
+  encoded: string;
+  theme: ThemeId;
+} | null = null;
 const contactCodes = new Map<string, string>(); // publicKeyHex → "XXXX XXXX XXXX XXXX"
 
 // ── DOM refs ────────────────────────────────────────────
@@ -491,7 +496,7 @@ function autoGrow(el: HTMLTextAreaElement): void {
 // ── Core logic ──────────────────────────────────────────
 
 async function processInput(): Promise<void> {
-  pendingSenderKey = null;
+  pendingNewContact = null;
   removeSaveContactBtn();
 
   const text = inputEl.value.trim();
@@ -622,8 +627,13 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
         setCopyableText('', '📋 Скопировать');
     ttsText = '';
       } else {
-        // Unknown sender — offer to save (no chat commit until saved)
-        pendingSenderKey = senderPub;
+        // Unknown sender — offer to save (message committed to chat on save)
+        pendingNewContact = {
+          senderKey: senderPub,
+          plaintext,
+          encoded: inputEl.value.trim(),
+          theme: _theme,
+        };
         lastDecodedSender = '(новый контакт)';
         outputEl.textContent = plaintext;
         setCopyableText(plaintext, 'Скопировать текст');
@@ -730,7 +740,7 @@ function removeSaveContactBtn(): void {
 }
 
 async function handleSavePendingContact(): Promise<void> {
-  if (!pendingSenderKey) return;
+  if (!pendingNewContact) return;
 
   const result = await showDialog({
     title: 'Сохранить контакт',
@@ -744,15 +754,39 @@ async function handleSavePendingContact(): Promise<void> {
   if (!result) return;
 
   const name = result.name.trim();
-  addContact(name, pendingSenderKey);
+  addContact(name, pendingNewContact.senderKey);
   contacts = loadContacts();
-  lastDecodedSender = name;
-  pendingSenderKey = null;
+
+  // Switch to the new contact's chat and commit the first message
+  const newContact = contacts[contacts.length - 1];
+  selectedContactId = newContact.id;
+  setSelectedContactId(selectedContactId);
+
+  addChatMessage({
+    id: randomChatId(),
+    direction: 'received',
+    plaintext: pendingNewContact.plaintext,
+    encoded: pendingNewContact.encoded,
+    contactId: newContact.id,
+    senderName: name,
+    timestamp: Date.now(),
+    theme: pendingNewContact.theme,
+  });
+
+  pendingNewContact = null;
   removeSaveContactBtn();
   renderContacts();
   refreshContactCodes();
-  setOutputLabel(`Расшифровано · от ${name}`);
-  updateStatus(`от ${name}`);
+  renderChat();
+
+  // Clear working area
+  inputEl.value = '';
+  autoGrow(inputEl);
+  outputEl.textContent = '';
+  setOutputLabel('');
+  setCopyableText('', '📋 Скопировать');
+  ttsText = '';
+  updateStatus();
 }
 
 async function handleContactToken(publicKey: Uint8Array): Promise<void> {
@@ -796,7 +830,12 @@ async function handleContactToken(publicKey: Uint8Array): Promise<void> {
 function tryParseInviteToken(text: string): Uint8Array | null {
   // Invite token format: base64url of [0x20][32-byte public key] = 33 bytes = 44 base64url chars
   // Also accept just the raw base64url of the 32-byte key (43 chars)
-  const clean = text.replace(/\s/g, '');
+  // Also accept full URLs with hash fragment: https://any-domain.com/path#TOKEN
+  let clean = text.replace(/\s/g, '');
+  const hashIdx = clean.indexOf('#');
+  if (hashIdx !== -1) {
+    clean = clean.slice(hashIdx + 1);
+  }
   if (!/^[A-Za-z0-9_-]{43,44}$/.test(clean)) return null;
 
   try {
