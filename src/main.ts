@@ -19,7 +19,7 @@ import {
 } from './contacts';
 import { speak, stopSpeaking, isSpeaking } from './tts';
 import { exportIdentity, importIdentity } from './identity';
-import { loadChat, addChatMessage, randomChatId } from './chat';
+import { loadChat, addChatMessage, clearChat, randomChatId } from './chat';
 
 // ── State ───────────────────────────────────────────────
 
@@ -1011,6 +1011,7 @@ async function handleDeleteContact(contactId: string): Promise<void> {
   });
   if (!result) return;
 
+  clearChat(contact.id);
   removeContact(contact.id);
   contacts = loadContacts();
   if (selectedContactId === contact.id) {
@@ -1018,6 +1019,7 @@ async function handleDeleteContact(contactId: string): Promise<void> {
     setSelectedContactId('');
   }
   renderContacts();
+  renderChat();
   processInput();
 }
 

@@ -32,6 +32,10 @@ export function saveChat(contactId: string, messages: ChatMessage[]): void {
   sessionStorage.setItem(chatStorageKey(contactId), JSON.stringify(messages));
 }
 
+export function clearChat(contactId: string): void {
+  sessionStorage.removeItem(chatStorageKey(contactId));
+}
+
 /** Add a message to a contact's chat. Returns { added: true } or { added: false, duplicateId } if deduplicated. */
 export function addChatMessage(msg: ChatMessage): { added: true } | { added: false; duplicateId: string } {
   const messages = loadChat(msg.contactId);

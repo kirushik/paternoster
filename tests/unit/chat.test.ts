@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { loadChat, saveChat, addChatMessage, randomChatId, type ChatMessage } from '../../src/chat';
+import { loadChat, saveChat, addChatMessage, clearChat, randomChatId, type ChatMessage } from '../../src/chat';
 
 // Mock sessionStorage
 const storage = new Map<string, string>();
@@ -47,6 +47,23 @@ describe('chat storage', () => {
     expect(loadChat('alice')[0].plaintext).toBe('A');
     expect(loadChat('bob')).toHaveLength(1);
     expect(loadChat('bob')[0].plaintext).toBe('B');
+  });
+
+  it('clearChat removes all messages for a contact', () => {
+    addChatMessage(makeMsg({ contactId: 'alice', encoded: 'msg-1' }));
+    addChatMessage(makeMsg({ contactId: 'alice', encoded: 'msg-2' }));
+    addChatMessage(makeMsg({ contactId: 'bob', encoded: 'msg-3' }));
+    expect(loadChat('alice')).toHaveLength(2);
+
+    clearChat('alice');
+    expect(loadChat('alice')).toEqual([]);
+    // Bob's chat is untouched
+    expect(loadChat('bob')).toHaveLength(1);
+  });
+
+  it('clearChat on empty chat is a no-op', () => {
+    clearChat('nonexistent');
+    expect(loadChat('nonexistent')).toEqual([]);
   });
 
   it('loadChat handles corrupted JSON gracefully', () => {
