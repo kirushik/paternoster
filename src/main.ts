@@ -299,14 +299,12 @@ function render(): void {
   app.innerHTML = `
     <div class="contacts-bar" id="contacts-bar"></div>
     <div class="chat-area" id="chat-area"></div>
-    <div class="theme-bar">
-      <label>Словарь: <select id="theme-select"></select></label>
-    </div>
     <textarea id="input" placeholder="Вставьте код, ссылку или сообщение — приложение само поймёт" rows="4"></textarea>
     <div class="output-area">
       <div id="output-mode-label" class="output-mode-label"></div>
       <div id="output" class="output-label"></div>
       <div class="output-actions" id="output-actions">
+        <select id="theme-select" title="Словарь"></select>
         <button id="copy-btn" class="action-btn" title="Скопировать">📋 Скопировать</button>
         <button id="tts-btn" class="action-btn" title="Прочитать вслух">🔊</button>
       </div>
@@ -1099,6 +1097,12 @@ async function handleCopy(): Promise<void> {
         theme: selectedTheme,
       });
       renderChat();
+      // Auto-clear working area for next message
+      inputEl.value = '';
+      autoGrow(inputEl);
+      outputEl.textContent = '';
+      setOutputLabel('');
+      setCopyableText('', '📋 Скопировать');
     }
   }
 

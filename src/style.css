@@ -135,22 +135,6 @@ body {
   opacity: 1 !important;
 }
 
-/* ── Theme selector ────────────────────────────────── */
-
-.theme-bar {
-  font-size: 0.875rem;
-  color: #8e8e93;
-}
-.theme-bar select {
-  font-size: 0.875rem;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid #d1d1d6;
-  border-radius: 6px;
-  background: #fff;
-  color: #1d1d1f;
-  font-family: inherit;
-}
-
 /* ── Text input ────────────────────────────────────── */
 
 textarea#input {
@@ -208,6 +192,17 @@ textarea#input::placeholder {
   display: flex;
   gap: 0.5rem;
   margin-top: 0.5rem;
+  align-items: center;
+}
+.output-actions select {
+  font-size: 0.8125rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #d1d1d6;
+  border-radius: 6px;
+  background: #fff;
+  color: #8e8e93;
+  font-family: inherit;
+  margin-right: auto;
 }
 
 .action-btn {
