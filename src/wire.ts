@@ -1,71 +1,121 @@
 /**
  * Wire format: serialize/deserialize message and contact token structures.
  *
- * Outer framing:
- *   Type 0x10 — encrypted message, no sender key (key exchange confirmed)
- *   Type 0x12 — encrypted message with ephemeral key (introduction / key exchange unconfirmed)
- *                Sender's real public key is INSIDE the encrypted envelope.
- *   Type 0x20 — contact token (unencrypted)
+ * Unified header byte: VV CC MM FF
+ *   VV = version (01), CC = class, MM = compression, FF = flags
+ *   See docs/crypto.md for full spec.
+ *
+ * Frame structures:
+ *   MSG:     [H:1][seed:6][ciphertext][tag:12]
+ *   INTRO:   [H:1][eph_pub:32][seed:6][ciphertext(sender_pub:32 + payload)][tag:12]
+ *   CONTACT: [H:1][pubkey:32]
  */
 
 import { concatU8 } from './utils';
+import { SEED_LENGTH } from './crypto';
 
-export const MSG_STANDARD = 0x10;
-export const MSG_INTRODUCTION = 0x12;
-export const CONTACT_TOKEN = 0x20;
+// ── Header byte layout ──────────────────────────────────
+// Bits: VV CC MM FF
+
+// Version (top 2 bits)
+const VERSION = 0b01_00_00_00; // 0x40
+
+// Class (bits 5-4)
+export const CLASS_CONTACT = 0b00_00_00_00;
+export const CLASS_INTRO   = 0b00_01_00_00; // 0x10
+export const CLASS_MSG     = 0b00_10_00_00; // 0x20
+
+// Compression (bits 3-2)
+export const COMP_LITERAL     = 0b00_00_00_00;
+export const COMP_SQUASH_SMAZ = 0b00_00_01_00; // 0x04
+export const COMP_SQUASH_ONLY = 0b00_00_10_00; // 0x08 — squash (CP1251) without smaz
+// 0b00_00_11_00 reserved for future (e.g., tinyphrase)
+
+// Masks for parsing
+const VERSION_MASK = 0b11_00_00_00;
+const CLASS_MASK   = 0b00_11_00_00;
+const COMP_MASK    = 0b00_00_11_00;
+
+/** Build a header byte from class and compression mode. */
+export function makeHeader(classVal: number, compVal: number): number {
+  return VERSION | classVal | compVal;
+}
+
+/** Extract class from header. */
+export function headerClass(header: number): number {
+  return header & CLASS_MASK;
+}
+
+/** Extract compression mode from header. */
+export function headerComp(header: number): number {
+  return header & COMP_MASK;
+}
+
+// ── Interfaces ──────────────────────────────────────────
 
 export interface WireMessage {
-  type: typeof MSG_STANDARD;
-  payload: Uint8Array; // [IV:12][ciphertext+tag]
+  header: number;
+  payload: Uint8Array; // [seed:6][ciphertext+96-bit tag]
 }
 
 export interface WireIntroduction {
-  type: typeof MSG_INTRODUCTION;
-  ephemeralPublicKey: Uint8Array; // 32 bytes — throwaway key, reveals nothing about sender
-  payload: Uint8Array; // [IV:12][ciphertext(sender_pub:32 + compressed_message)]
+  header: number;
+  ephemeralPublicKey: Uint8Array; // 32 bytes
+  payload: Uint8Array;            // [seed:6][ciphertext(sender_pub:32 + compressed)+96-bit tag]
 }
 
 export interface WireContactToken {
-  type: typeof CONTACT_TOKEN;
+  header: number;
   publicKey: Uint8Array; // 32 bytes
 }
 
 export type WireFrame = WireMessage | WireIntroduction | WireContactToken;
 
+// ── Serialize ───────────────────────────────────────────
+
 /** Serialize a wire frame to bytes. */
 export function serializeWire(frame: WireFrame): Uint8Array {
-  if (frame.type === CONTACT_TOKEN) {
-    return concatU8(new Uint8Array([frame.type]), frame.publicKey);
+  if ('publicKey' in frame) {
+    return concatU8(new Uint8Array([frame.header]), frame.publicKey);
   }
-  if (frame.type === MSG_INTRODUCTION) {
-    return concatU8(new Uint8Array([frame.type]), frame.ephemeralPublicKey, frame.payload);
+  if ('ephemeralPublicKey' in frame) {
+    return concatU8(new Uint8Array([frame.header]), frame.ephemeralPublicKey, frame.payload);
   }
-  // MSG_STANDARD
-  return concatU8(new Uint8Array([frame.type]), frame.payload);
+  // MSG
+  return concatU8(new Uint8Array([frame.header]), frame.payload);
 }
+
+// ── Deserialize ─────────────────────────────────────────
 
 /** Deserialize bytes into a wire frame. Returns null if invalid. */
 export function deserializeWire(data: Uint8Array): WireFrame | null {
   if (data.length < 2) return null;
-  const type = data[0];
+  const header = data[0];
 
-  if (type === CONTACT_TOKEN) {
+  // Check version bits
+  if ((header & VERSION_MASK) !== VERSION) return null;
+
+  const cls = header & CLASS_MASK;
+
+  if (cls === CLASS_CONTACT) {
     if (data.length !== 33) return null;
-    return { type, publicKey: data.slice(1, 33) };
+    return { header, publicKey: data.slice(1, 33) };
   }
 
-  if (type === MSG_INTRODUCTION) {
-    if (data.length < 46) return null; // 1 + 32 + 12 + at least 1
+  if (cls === CLASS_INTRO) {
+    // H:1 + eph_pub:32 + seed:6 + at least 1 byte ciphertext + tag:12
+    if (data.length < 1 + 32 + SEED_LENGTH + 1 + 12) return null;
     return {
-      type,
+      header,
       ephemeralPublicKey: data.slice(1, 33),
       payload: data.slice(33),
     };
   }
 
-  if (type === MSG_STANDARD) {
-    if (data.length < 14) return null; // 1 + 12 + at least 1
-    return { type, payload: data.slice(1) };
+  if (cls === CLASS_MSG) {
+    // H:1 + seed:6 + at least 1 byte ciphertext + tag:12
+    if (data.length < 1 + SEED_LENGTH + 1 + 12) return null;
+    return { header, payload: data.slice(1) };
   }
 
   return null;

@@ -1,8 +1,9 @@
 import { concatU8 } from './utils';
 
-const SALT = new TextEncoder().encode('paternoster-v1');
-const INFO = new TextEncoder().encode('aes-gcm-256');
-const IV_LENGTH = 12;
+const SALT_PREFIX = new TextEncoder().encode('paternoster-v2');
+export const SEED_LENGTH = 6;
+const TAG_LENGTH = 96; // bits (12 bytes)
+const OKM_LENGTH = 44; // 32-byte key + 12-byte IV
 
 /** Check if the browser supports X25519. Throws a user-friendly error if not. */
 export async function checkX25519Support(): Promise<void> {
@@ -33,7 +34,6 @@ export async function exportPublicKey(key: CryptoKey): Promise<Uint8Array> {
 
 /** Export a CryptoKey private key to 32-byte Uint8Array. */
 export async function exportPrivateKey(key: CryptoKey): Promise<Uint8Array> {
-  // X25519 private keys may need PKCS8 export; extract the 32-byte raw key from the DER structure
   const pkcs8 = await crypto.subtle.exportKey('pkcs8', key);
   const pkcs8Bytes = new Uint8Array(pkcs8);
   // PKCS8 for X25519: 48 bytes total. The raw 32-byte key starts at offset 16.
@@ -63,7 +63,6 @@ export async function importPrivateKey(raw: Uint8Array): Promise<CryptoKey> {
 /** Derive X25519 public key from raw private key bytes (scalar mult against base point). */
 export async function derivePublicKey(rawPrivate: Uint8Array): Promise<Uint8Array> {
   const privKey = await importPrivateKey(rawPrivate);
-  // X25519 base point: u-coordinate = 9 (little-endian)
   const basePoint = new Uint8Array(32);
   basePoint[0] = 9;
   const basePub = await importPublicKey(basePoint);
@@ -73,53 +72,111 @@ export async function derivePublicKey(rawPrivate: Uint8Array): Promise<Uint8Arra
   return new Uint8Array(pubBytes);
 }
 
-/** Derive a shared AES-GCM key from ECDH shared secret via HKDF. */
-async function deriveAESKey(sharedBits: ArrayBuffer): Promise<CryptoKey> {
-  const keyMaterial = await crypto.subtle.importKey('raw', sharedBits, 'HKDF', false, ['deriveKey']);
-  return crypto.subtle.deriveKey(
-    { name: 'HKDF', hash: 'SHA-256', salt: SALT, info: INFO },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
-  );
+/**
+ * Compute direction byte for domain separation.
+ * 0x00 if senderPub < recipientPub (lexicographic), 0x01 otherwise.
+ */
+export function directionByte(senderPub: Uint8Array, recipientPub: Uint8Array): number {
+  for (let i = 0; i < 32; i++) {
+    if (senderPub[i] < recipientPub[i]) return 0x00;
+    if (senderPub[i] > recipientPub[i]) return 0x01;
+  }
+  return 0x00; // equal keys (self-encryption)
 }
 
-/** Encrypt plaintext bytes. Returns [12-byte IV][ciphertext+tag]. */
+/**
+ * Derive per-message AES key + IV from ECDH shared secret and a random seed.
+ *
+ * PRK = HKDF-Extract(salt = "paternoster-v2" || seed, IKM = sharedBits)
+ * OKM = HKDF-Expand(PRK, info = [headerByte, dirByte], L = 44)
+ * key = OKM[0..31], iv = OKM[32..43]
+ */
+async function deriveKeyIV(
+  sharedBits: ArrayBuffer,
+  seed: Uint8Array,
+  headerByte: number,
+  dirByte: number,
+): Promise<{ key: CryptoKey; iv: Uint8Array }> {
+  const salt = concatU8(SALT_PREFIX, seed);
+  const info = new Uint8Array([headerByte, dirByte]);
+
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', sharedBits, 'HKDF', false, ['deriveBits'],
+  );
+  const okm = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt: salt as BufferSource, info: info as BufferSource },
+    keyMaterial,
+    OKM_LENGTH * 8,
+  ));
+
+  const key = await crypto.subtle.importKey(
+    'raw', okm.slice(0, 32) as BufferSource,
+    { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
+  );
+  const iv = okm.slice(32, 44);
+
+  return { key, iv };
+}
+
+/**
+ * Encrypt plaintext bytes. Returns [6-byte seed][ciphertext+96-bit tag].
+ * Header byte is bound as AAD (authenticated but not encrypted).
+ */
 export async function encrypt(
   plaintext: Uint8Array,
   myPrivateKey: Uint8Array,
   theirPublicKey: Uint8Array,
+  senderPub: Uint8Array,
+  recipientPub: Uint8Array,
+  headerByte: number,
 ): Promise<Uint8Array> {
   const myKey = await importPrivateKey(myPrivateKey);
   const theirKey = await importPublicKey(theirPublicKey);
   const sharedBits = await crypto.subtle.deriveBits(
-    { name: 'X25519', public: theirKey },
-    myKey,
-    256,
+    { name: 'X25519', public: theirKey }, myKey, 256,
   );
-  const aesKey = await deriveAESKey(sharedBits);
-  const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
-  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, plaintext as BufferSource);
-  return concatU8(iv, new Uint8Array(ciphertext));
+
+  const seed = crypto.getRandomValues(new Uint8Array(SEED_LENGTH));
+  const dirByte = directionByte(senderPub, recipientPub);
+  const { key, iv } = await deriveKeyIV(sharedBits, seed, headerByte, dirByte);
+
+  const aad = new Uint8Array([headerByte]);
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv as BufferSource, tagLength: TAG_LENGTH, additionalData: aad as BufferSource },
+    key, plaintext as BufferSource,
+  );
+
+  return concatU8(seed, new Uint8Array(ciphertext));
 }
 
-/** Decrypt ciphertext bytes. Input: [12-byte IV][ciphertext+tag]. */
+/**
+ * Decrypt ciphertext bytes. Input: [6-byte seed][ciphertext+96-bit tag].
+ * Header byte is checked as AAD — tampered headers cause decryption failure.
+ */
 export async function decrypt(
   data: Uint8Array,
   myPrivateKey: Uint8Array,
   theirPublicKey: Uint8Array,
+  senderPub: Uint8Array,
+  recipientPub: Uint8Array,
+  headerByte: number,
 ): Promise<Uint8Array> {
+  const seed = data.slice(0, SEED_LENGTH);
+  const ciphertext = data.slice(SEED_LENGTH);
+
   const myKey = await importPrivateKey(myPrivateKey);
   const theirKey = await importPublicKey(theirPublicKey);
   const sharedBits = await crypto.subtle.deriveBits(
-    { name: 'X25519', public: theirKey },
-    myKey,
-    256,
+    { name: 'X25519', public: theirKey }, myKey, 256,
   );
-  const aesKey = await deriveAESKey(sharedBits);
-  const iv = data.slice(0, IV_LENGTH);
-  const ciphertext = data.slice(IV_LENGTH);
-  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ciphertext);
+
+  const dirByte = directionByte(senderPub, recipientPub);
+  const { key, iv } = await deriveKeyIV(sharedBits, seed, headerByte, dirByte);
+
+  const aad = new Uint8Array([headerByte]);
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: iv as BufferSource, tagLength: TAG_LENGTH, additionalData: aad as BufferSource },
+    key, ciphertext,
+  );
   return new Uint8Array(decrypted);
 }

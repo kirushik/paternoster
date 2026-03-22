@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { u8toBase64url, base64urlToU8 } from '../../src/utils';
-import { serializeWire, CONTACT_TOKEN } from '../../src/wire';
+import { serializeWire, makeHeader, headerClass, CLASS_CONTACT, COMP_LITERAL } from '../../src/wire';
 import { generateKeyPair } from '../../src/crypto';
+
+const CONTACT_HEADER = makeHeader(CLASS_CONTACT, COMP_LITERAL);
 
 // Reproduce tryParseInviteToken logic (it's in main.ts which has DOM deps, so we test the logic directly)
 function tryParseInviteToken(text: string): Uint8Array | null {
@@ -13,7 +15,7 @@ function tryParseInviteToken(text: string): Uint8Array | null {
   if (!/^[A-Za-z0-9_-]{43,44}$/.test(clean)) return null;
   try {
     const decoded = base64urlToU8(clean);
-    if (decoded.length === 33 && decoded[0] === 0x20) return decoded.slice(1);
+    if (decoded.length === 33 && headerClass(decoded[0]) === CLASS_CONTACT) return decoded.slice(1);
     if (decoded.length === 32) return decoded;
   } catch {
     // not valid base64
@@ -22,7 +24,7 @@ function tryParseInviteToken(text: string): Uint8Array | null {
 }
 
 function makeInviteToken(publicKey: Uint8Array): string {
-  const wire = serializeWire({ type: CONTACT_TOKEN, publicKey });
+  const wire = serializeWire({ header: CONTACT_HEADER, publicKey });
   return u8toBase64url(wire);
 }
 
@@ -68,10 +70,10 @@ describe('invite token validation', () => {
     expect(result).not.toBeNull();
   });
 
-  it('rejects 44 chars that decode to wrong type byte', () => {
-    const wrongType = new Uint8Array(33);
-    wrongType[0] = 0xFF;
-    const token = u8toBase64url(wrongType);
+  it('rejects 44 chars that decode to wrong header', () => {
+    const wrongHeader = new Uint8Array(33);
+    wrongHeader[0] = 0xFF; // invalid version bits
+    const token = u8toBase64url(wrongHeader);
     expect(tryParseInviteToken(token)).toBeNull();
   });
 });

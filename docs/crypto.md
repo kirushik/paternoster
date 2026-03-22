@@ -10,7 +10,7 @@ The original codebase bundled noble-curves (5350 lines). Web Crypto API added X2
 
 X25519 (Curve25519 ECDH) provides 128-bit security with 32-byte keys — the shortest keys at this security level. Short keys mean shorter contact tokens and invite links. AES-256-GCM is the standard authenticated encryption mode available in every Web Crypto implementation. HKDF-SHA256 derives the AES key from the ECDH shared secret.
 
-**Improvement over original:** The old code used empty HKDF salt and info. We use `"paternoster-v1"` as salt and `"aes-gcm-256"` as info to prevent cross-protocol key reuse.
+**Improvement over original:** The old code used empty HKDF salt and info. We use `"paternoster-v2" || seed` as salt and `[header_byte, direction_byte]` as info for per-message key derivation with full domain separation.
 
 ## Threat Model
 
@@ -26,35 +26,79 @@ X25519 (Curve25519 ECDH) provides 128-bit security with 32-byte keys — the sho
 
 ## Wire Format
 
-Two layers: outer (message routing) and inner (compression).
+V2 reduces fixed AEAD overhead from 29 bytes to 19 bytes per message.
 
-**Outer framing** — first byte identifies the frame type:
+**Unified header byte** — replaces both the V1 type byte and the inner compression flags byte:
 
-| Type | Byte | Structure | Use |
+```
+Bits: VV CC MM FF
+  VV = version:     01
+  CC = class:       00=CONTACT, 01=INTRO, 10=MSG, 11=reserved
+  MM = compression:  00=literal, 01=squash+smaz, 10=squash-only, 11=reserved
+  FF = flags:        00=default (reserved for future use)
+```
+
+Squash-only mode (`MM=10`) encodes Cyrillic as CP1251 without smaz dictionary compression. This is better than squash+smaz when smaz's verbatim escape overhead would expand the output (short messages, mixed content, emoji-heavy text). The compressor automatically picks the smallest of literal, squash-only, and squash+smaz.
+
+The header byte is authenticated via AEAD Additional Data (AAD) — flipping any bit causes decryption failure.
+
+**V2 frame structures:**
+
+| Class | Header | Structure | Fixed overhead |
 |---|---|---|---|
-| MSG_STANDARD | `0x10` | `[0x10][IV:12][ciphertext]` | Messages to contacts with confirmed key exchange |
-| MSG_INTRODUCTION | `0x12` | `[0x12][ephemeral_pub:32][IV:12][ciphertext(sender_pub:32 + payload)]` | Messages when key exchange is unconfirmed — sender identity inside encrypted envelope |
-| Contact token | `0x20` | `[0x20][pubkey:32]` | Contact sharing (not encrypted, exactly 33 bytes) |
+| MSG | `01_10_MM_00` | `[H:1][seed:6][ciphertext][tag:12]` | 19 bytes |
+| INTRO | `01_01_MM_00` | `[H:1][eph_pub:32][seed:6][ciphertext(sender_pub:32 + payload)][tag:12]` | 83 bytes |
+| CONTACT | `01_00_00_00` | `[H:1][pubkey:32]` | 33 bytes |
 
-**MSG_INTRODUCTION explained:**
+**Why V2 is smaller:**
 
-The sender generates a one-time ephemeral X25519 keypair. The ephemeral public key goes in cleartext (reveals nothing about sender identity). The sender's real public key is prepended to the compressed message, and the combined payload is encrypted using `ECDH(ephemeral_priv, recipient_pub)`.
+| Component | V1 | V2 | Saved |
+|---|---|---|---|
+| Type / header | 1 byte | 1 byte (unified — also carries compression mode) | 0 |
+| Inner compression flags | 1 byte | 0 (moved into header) | 1 |
+| IV / seed | 12 bytes (random IV) | 6 bytes (random seed → derived key+IV) | 6 |
+| Auth tag | 16 bytes (128-bit) | 12 bytes (96-bit) | 4 |
+| **Total fixed (MSG)** | **30 bytes** | **19 bytes** | **11** |
 
-The recipient decrypts with `ECDH(recipient_priv, ephemeral_pub)`, extracts the sender's real key (first 32 bytes of plaintext), and the compressed message (rest). If the sender is a known contact, the key exchange is confirmed.
+#### V2 KDF Specification
 
-This replaces the old MSG_WITH_SENDER (0x11) which put the sender key in cleartext. The new approach hides sender identity from passive observers — only the intended recipient can see who sent a message.
+Each message derives a unique AES-256 key and 96-bit GCM nonce from a 6-byte random seed. Since every message gets a unique key, nonce reuse is impossible (unless seeds collide — birthday bound at ~16.7M messages per contact pair, ~200 years at 10 msgs/day).
 
-**Key exchange confirmation:**
+```
+seed = crypto.getRandomValues(new Uint8Array(6))
 
-The `keyExchangeConfirmed` flag on each contact tracks whether we have proof they possess our public key. Set when we successfully decrypt any message from them (they needed our key to encrypt for us). Until confirmed, every outgoing message uses MSG_INTRODUCTION. After confirmation, MSG_STANDARD is used (no sender key, no overhead).
+Direction byte (prevents same-seed Alice→Bob / Bob→Alice collision):
+  0x00  if sender_pub < recipient_pub   (lexicographic byte comparison)
+  0x01  otherwise
 
-**Inner framing** (the plaintext before encryption) — per [compression guide](../compression/results/guide.md):
+salt = TextEncoder.encode("paternoster-v2") || seed      // 14 + 6 = 20 bytes
 
-| Flags | Meaning |
+PRK = HKDF-Extract(salt, IKM = ECDH(my_private, their_public))
+
+OKM = HKDF-Expand(PRK, info = [header_byte, direction_byte], L = 44)
+
+key = OKM[0..31]     // 256-bit AES key
+iv  = OKM[32..43]    // 96-bit GCM nonce
+
+ciphertext = AES-GCM-256(key, iv, plaintext,
+                          tagLength = 96,
+                          additionalData = [header_byte])
+```
+
+**Domain separation guarantees:**
+- Different seeds → different PRK → different key+IV (per-message uniqueness)
+- Different direction bytes → different OKM even with same seed (Alice→Bob ≠ Bob→Alice)
+- Different header bytes → different OKM (MSG vs INTRO cannot collide)
+- AAD binding → header byte is authenticated, cannot be tampered
+
+**Seed length rationale:** 6-byte (48-bit) seed. Birthday collision probability:
+
+| Messages | Collision probability |
 |---|---|
-| `0xC0` | Squash + smaz |
-| `0x3F` | Literal UTF-8 (compression didn't help) |
-| `0x80` | Squash + zstd (reserved, not in V1) |
+| 750K | 0.1% |
+| 16.7M | 50% |
+
+For manual covert exchange volumes, 48-bit seeds provide ample margin. This is a conscious protocol tradeoff — 8-byte seeds would be more conservative (birthday at ~4.3B) but cost 2 extra bytes per message.
 
 ## PKCS8 Wrapping
 
@@ -69,5 +113,7 @@ Web Crypto doesn't support raw X25519 private key import. We construct a PKCS8 A
 
 - `deriveBits()` returns an `ArrayBuffer`, not `Uint8Array`. Must wrap before using.
 - Private key export goes through PKCS8 (48 bytes), not raw format. We slice the last 32 bytes.
-- AES-GCM IV is 12 bytes, generated fresh per message via `crypto.getRandomValues`. IV reuse with the same key is catastrophic — never cache or reuse IVs.
-- MSG_INTRODUCTION generates a new ephemeral keypair per message. These are never stored — used once and discarded.
+- Both key and IV are derived from the 6-byte seed (never transmitted). The seed MUST be fresh random per message. Seed reuse with the same contact pair produces identical key+IV → catastrophic GCM nonce reuse.
+- INTRO generates a new ephemeral keypair per message. These are never stored — used once and discarded.
+- `tagLength: 96` must be specified on BOTH encrypt and decrypt calls. Mismatched tag lengths cause silent corruption or decrypt failure.
+- The header byte MUST be bound as AAD on both encrypt and decrypt. Without AAD, an attacker could flip compression bits without breaking decryption, causing garbled decompression.
