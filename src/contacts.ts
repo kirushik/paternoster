@@ -10,7 +10,7 @@ export interface Contact {
   name: string;
   publicKeyHex: string;
   addedAt: number;
-  firstMessageSent: boolean;
+  keyExchangeConfirmed: boolean;
 }
 
 /** Generate a random ID. */
@@ -29,9 +29,18 @@ function isValidContact(c: unknown): c is Contact {
     typeof obj.name === 'string' &&
     typeof obj.publicKeyHex === 'string' &&
     typeof obj.addedAt === 'number' &&
-    typeof obj.firstMessageSent === 'boolean' &&
+    typeof obj.keyExchangeConfirmed === 'boolean' &&
     /^[0-9A-F]{64}$/.test(obj.publicKeyHex)
   );
+}
+
+/** Migrate old contact format (firstMessageSent → keyExchangeConfirmed). */
+function migrateContact(obj: Record<string, unknown>): void {
+  if ('firstMessageSent' in obj && !('keyExchangeConfirmed' in obj)) {
+    // Reset to unconfirmed — we'll re-send keys until we get a reply
+    obj.keyExchangeConfirmed = false;
+    delete obj.firstMessageSent;
+  }
 }
 
 /** Load all contacts from localStorage. Filters out malformed entries. */
@@ -41,7 +50,18 @@ export function loadContacts(): Contact[] {
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isValidContact);
+    // Run migration on each entry before validation
+    for (const entry of parsed) {
+      if (typeof entry === 'object' && entry !== null) {
+        migrateContact(entry as Record<string, unknown>);
+      }
+    }
+    const valid = parsed.filter(isValidContact);
+    // If migration happened, persist the migrated data
+    if (valid.length > 0) {
+      storageSet(STORAGE.contacts, JSON.stringify(valid));
+    }
+    return valid;
   } catch {
     return [];
   }
@@ -60,7 +80,7 @@ export function addContact(name: string, publicKey: Uint8Array): Contact {
     name,
     publicKeyHex: u8hex(publicKey),
     addedAt: Date.now(),
-    firstMessageSent: false,
+    keyExchangeConfirmed: false,
   };
   contacts.push(contact);
   saveContacts(contacts);
@@ -89,12 +109,12 @@ export function renameContact(id: string, newName: string): void {
   }
 }
 
-/** Mark that the first message has been sent to a contact (so sender key won't be included again). */
-export function markFirstMessageSent(id: string): void {
+/** Mark that key exchange is confirmed with a contact (we received a message from them). */
+export function confirmKeyExchange(id: string): void {
   const contacts = loadContacts();
   const contact = contacts.find(c => c.id === id);
   if (contact) {
-    contact.firstMessageSent = true;
+    contact.keyExchangeConfirmed = true;
     saveContacts(contacts);
   }
 }

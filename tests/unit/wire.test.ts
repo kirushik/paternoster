@@ -1,24 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { serializeWire, deserializeWire, MSG_NO_SENDER, MSG_WITH_SENDER, CONTACT_TOKEN } from '../../src/wire';
+import { serializeWire, deserializeWire, MSG_STANDARD, MSG_INTRODUCTION, CONTACT_TOKEN } from '../../src/wire';
 
 describe('wire format roundtrip', () => {
-  it('MSG_NO_SENDER roundtrips', () => {
+  it('MSG_STANDARD roundtrips', () => {
     const payload = crypto.getRandomValues(new Uint8Array(50));
-    const wire = serializeWire({ type: MSG_NO_SENDER, payload });
+    const wire = serializeWire({ type: MSG_STANDARD, payload });
     const parsed = deserializeWire(wire);
     expect(parsed).not.toBeNull();
-    expect(parsed!.type).toBe(MSG_NO_SENDER);
+    expect(parsed!.type).toBe(MSG_STANDARD);
     expect((parsed as any).payload).toEqual(payload);
   });
 
-  it('MSG_WITH_SENDER roundtrips', () => {
-    const senderKey = crypto.getRandomValues(new Uint8Array(32));
+  it('MSG_INTRODUCTION roundtrips', () => {
+    const ephemeralKey = crypto.getRandomValues(new Uint8Array(32));
     const payload = crypto.getRandomValues(new Uint8Array(50));
-    const wire = serializeWire({ type: MSG_WITH_SENDER, senderPublicKey: senderKey, payload });
+    const wire = serializeWire({ type: MSG_INTRODUCTION, ephemeralPublicKey: ephemeralKey, payload });
     const parsed = deserializeWire(wire);
     expect(parsed).not.toBeNull();
-    expect(parsed!.type).toBe(MSG_WITH_SENDER);
-    expect((parsed as any).senderPublicKey).toEqual(senderKey);
+    expect(parsed!.type).toBe(MSG_INTRODUCTION);
+    expect((parsed as any).ephemeralPublicKey).toEqual(ephemeralKey);
     expect((parsed as any).payload).toEqual(payload);
   });
 
@@ -39,18 +39,18 @@ describe('wire format structure', () => {
     expect(wire[0]).toBe(0x20);
   });
 
-  it('MSG_NO_SENDER starts with 0x10', () => {
-    const wire = serializeWire({ type: MSG_NO_SENDER, payload: new Uint8Array(20) });
+  it('MSG_STANDARD starts with 0x10', () => {
+    const wire = serializeWire({ type: MSG_STANDARD, payload: new Uint8Array(20) });
     expect(wire[0]).toBe(0x10);
     expect(wire.length).toBe(21); // 1 type + 20 payload
   });
 
-  it('MSG_WITH_SENDER starts with 0x11, includes 32-byte key', () => {
-    const key = new Uint8Array(32).fill(0xAB);
-    const wire = serializeWire({ type: MSG_WITH_SENDER, senderPublicKey: key, payload: new Uint8Array(20) });
-    expect(wire[0]).toBe(0x11);
+  it('MSG_INTRODUCTION starts with 0x12, includes 32-byte ephemeral key', () => {
+    const ephKey = new Uint8Array(32).fill(0xAB);
+    const wire = serializeWire({ type: MSG_INTRODUCTION, ephemeralPublicKey: ephKey, payload: new Uint8Array(20) });
+    expect(wire[0]).toBe(0x12);
     expect(wire.length).toBe(53); // 1 + 32 + 20
-    expect(wire.slice(1, 33)).toEqual(key);
+    expect(wire.slice(1, 33)).toEqual(ephKey);
   });
 });
 
@@ -71,14 +71,20 @@ describe('wire deserialization rejects invalid input', () => {
     expect(deserializeWire(new Uint8Array([0x20, 0x01, 0x02]))).toBeNull();
   });
 
-  it('returns null for too-short MSG_WITH_SENDER', () => {
-    // Type + 10 bytes (need at least 32 key + 12 IV + 1 ciphertext)
-    expect(deserializeWire(new Uint8Array(11).fill(0x11))).toBeNull();
+  it('returns null for too-short MSG_INTRODUCTION', () => {
+    // Type + 10 bytes (need at least 32 ephemeral + 12 IV + 1 ciphertext)
+    expect(deserializeWire(new Uint8Array(11).fill(0x12))).toBeNull();
   });
 
   it('returns null for CONTACT_TOKEN with trailing bytes', () => {
     const data = new Uint8Array(34);
     data[0] = 0x20;
+    expect(deserializeWire(data)).toBeNull();
+  });
+
+  it('returns null for old MSG_WITH_SENDER type (0x11)', () => {
+    const data = new Uint8Array(46);
+    data[0] = 0x11;
     expect(deserializeWire(data)).toBeNull();
   });
 });

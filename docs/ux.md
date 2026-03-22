@@ -16,9 +16,20 @@ The output always appears in a read-only label below the field. There is no "enc
 
 An **output mode label** above the output text tells the user what the app decided: "Зашифровано", "Расшифровано · от Alice", "Мой контакт", etc. This makes the auto-detect logic transparent without adding UI modes.
 
-## Why No Message History
+## Session Chat History
 
-The threat model includes device inspection. Stored message history is evidence. The app is fully stateless regarding messages — only identity (keypair) and contacts are persisted. The input field and output label clear on page refresh.
+Messages are stored in `sessionStorage` per contact — they survive page reloads within the same tab but are cleared when the tab closes. This balances usability (users can track a conversation) with the threat model (no persistent message history on disk).
+
+**Layout:** A scrollable chat area sits between the contact strip and the composition area. Sent messages appear as blue bubbles (aligned right) with a copy button to re-copy the encoded text. Received messages appear as gray bubbles (aligned left) with the sender name.
+
+**Commit flow:**
+- **Sending:** The message is committed to chat when the user copies the encoded text (the "send" action). The plaintext and encoded text are both stored.
+- **Receiving:** When a message from a known contact is decoded, it is immediately committed to chat, the input auto-clears, and the app switches to the sender's conversation.
+- **Unknown senders:** Messages from unknown senders are NOT committed to chat until the contact is saved.
+
+**No chat for self-encryption:** The "Я" view (self-encryption) does not show chat history. It's a notepad, not a conversation.
+
+**Storage key:** `paternoster_chat_${contactId}` in `sessionStorage`.
 
 ## Feedback Layer
 
@@ -73,9 +84,11 @@ Three ways in:
 - **Paste base64url token** in the main field → `tryParseInviteToken()` matches → dialog for name
 - **"+" button** → dialog with token/key field + name field, inline validation
 
-### First-message auto-introduction
+### Key exchange and auto-introduction
 
-When you send your first message to a new contact, the app includes your public key in the wire frame (type `0x11` vs `0x10`). The recipient's app discovers your key automatically. The decrypted message is shown first (label: "Расшифровано · от нового контакта"), then a "Сохранить контакт" button appears in the output actions. The user reads the message before deciding whether to save the sender. After the first message, the sender key is omitted (saves 32 bytes per message).
+Messages to contacts with unconfirmed key exchange use MSG_INTRODUCTION (0x12): an ephemeral throwaway key in cleartext, with the sender's real identity encrypted inside the envelope. This continues until we receive a message from the contact (proof they have our key), at which point messages switch to MSG_STANDARD (0x10, no sender key).
+
+When a message from an unknown sender is decoded, the decrypted message is shown first (label: "Расшифровано · от нового контакта"), then a "Сохранить контакт" button appears in the output actions. The user reads the message before deciding whether to save the sender. See [crypto.md](crypto.md) for wire format details.
 
 ### Deleting a contact
 

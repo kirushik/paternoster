@@ -2,21 +2,27 @@
  * Wire format: serialize/deserialize message and contact token structures.
  *
  * Outer framing:
- *   Type 0x10 — encrypted message, no sender key
- *   Type 0x11 — encrypted message, with sender key
+ *   Type 0x10 — encrypted message, no sender key (key exchange confirmed)
+ *   Type 0x12 — encrypted message with ephemeral key (introduction / key exchange unconfirmed)
+ *                Sender's real public key is INSIDE the encrypted envelope.
  *   Type 0x20 — contact token (unencrypted)
  */
 
 import { concatU8 } from './utils';
 
-export const MSG_NO_SENDER = 0x10;
-export const MSG_WITH_SENDER = 0x11;
+export const MSG_STANDARD = 0x10;
+export const MSG_INTRODUCTION = 0x12;
 export const CONTACT_TOKEN = 0x20;
 
 export interface WireMessage {
-  type: typeof MSG_NO_SENDER | typeof MSG_WITH_SENDER;
-  senderPublicKey?: Uint8Array; // 32 bytes, only for MSG_WITH_SENDER
-  payload: Uint8Array; // [IV][ciphertext] — the encrypted compressed blob
+  type: typeof MSG_STANDARD;
+  payload: Uint8Array; // [IV:12][ciphertext+tag]
+}
+
+export interface WireIntroduction {
+  type: typeof MSG_INTRODUCTION;
+  ephemeralPublicKey: Uint8Array; // 32 bytes — throwaway key, reveals nothing about sender
+  payload: Uint8Array; // [IV:12][ciphertext(sender_pub:32 + compressed_message)]
 }
 
 export interface WireContactToken {
@@ -24,17 +30,17 @@ export interface WireContactToken {
   publicKey: Uint8Array; // 32 bytes
 }
 
-export type WireFrame = WireMessage | WireContactToken;
+export type WireFrame = WireMessage | WireIntroduction | WireContactToken;
 
 /** Serialize a wire frame to bytes. */
 export function serializeWire(frame: WireFrame): Uint8Array {
   if (frame.type === CONTACT_TOKEN) {
     return concatU8(new Uint8Array([frame.type]), frame.publicKey);
   }
-  if (frame.type === MSG_WITH_SENDER) {
-    return concatU8(new Uint8Array([frame.type]), frame.senderPublicKey!, frame.payload);
+  if (frame.type === MSG_INTRODUCTION) {
+    return concatU8(new Uint8Array([frame.type]), frame.ephemeralPublicKey, frame.payload);
   }
-  // MSG_NO_SENDER
+  // MSG_STANDARD
   return concatU8(new Uint8Array([frame.type]), frame.payload);
 }
 
@@ -48,16 +54,16 @@ export function deserializeWire(data: Uint8Array): WireFrame | null {
     return { type, publicKey: data.slice(1, 33) };
   }
 
-  if (type === MSG_WITH_SENDER) {
+  if (type === MSG_INTRODUCTION) {
     if (data.length < 46) return null; // 1 + 32 + 12 + at least 1
     return {
       type,
-      senderPublicKey: data.slice(1, 33),
+      ephemeralPublicKey: data.slice(1, 33),
       payload: data.slice(33),
     };
   }
 
-  if (type === MSG_NO_SENDER) {
+  if (type === MSG_STANDARD) {
     if (data.length < 14) return null; // 1 + 12 + at least 1
     return { type, payload: data.slice(1) };
   }

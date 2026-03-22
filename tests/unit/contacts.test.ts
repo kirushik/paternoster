@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { loadContacts, addContact, findContactByKey, removeContact, renameContact, markFirstMessageSent, getContactKey } from '../../src/contacts';
+import { loadContacts, addContact, findContactByKey, removeContact, renameContact, confirmKeyExchange, getContactKey } from '../../src/contacts';
 
 // Mock localStorage
 const storage = new Map<string, string>();
@@ -23,7 +23,7 @@ describe('contacts CRUD', () => {
     const contact = addContact('Alice', key);
     expect(contact.name).toBe('Alice');
     expect(contact.publicKeyHex).toBe('AB'.repeat(32));
-    expect(contact.firstMessageSent).toBe(false);
+    expect(contact.keyExchangeConfirmed).toBe(false);
     expect(contact.id).toMatch(/^[0-9a-f]{16}$/);
 
     const loaded = loadContacts();
@@ -64,20 +64,51 @@ describe('contacts CRUD', () => {
     expect(loaded[0].name).toBe('New Name');
   });
 
-  it('markFirstMessageSent sets flag', () => {
+  it('confirmKeyExchange sets flag', () => {
     const key = new Uint8Array(32).fill(0x04);
     const contact = addContact('Charlie', key);
-    expect(contact.firstMessageSent).toBe(false);
+    expect(contact.keyExchangeConfirmed).toBe(false);
 
-    markFirstMessageSent(contact.id);
+    confirmKeyExchange(contact.id);
     const loaded = loadContacts();
-    expect(loaded[0].firstMessageSent).toBe(true);
+    expect(loaded[0].keyExchangeConfirmed).toBe(true);
   });
 
   it('getContactKey returns Uint8Array', () => {
     const key = new Uint8Array(32).fill(0x05);
     const contact = addContact('Dave', key);
     expect(getContactKey(contact)).toEqual(key);
+  });
+});
+
+describe('contacts migration', () => {
+  it('migrates firstMessageSent to keyExchangeConfirmed (reset to false)', () => {
+    const oldContact = {
+      id: 'abc123def456abcd',
+      name: 'OldAlice',
+      publicKeyHex: 'AB'.repeat(32),
+      addedAt: 1000,
+      firstMessageSent: true,
+    };
+    storage.set('paternoster_contacts', JSON.stringify([oldContact]));
+    const loaded = loadContacts();
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0].keyExchangeConfirmed).toBe(false);
+    expect((loaded[0] as any).firstMessageSent).toBeUndefined();
+  });
+
+  it('migrates firstMessageSent=false to keyExchangeConfirmed=false', () => {
+    const oldContact = {
+      id: 'abc123def456abcd',
+      name: 'OldBob',
+      publicKeyHex: 'CD'.repeat(32),
+      addedAt: 2000,
+      firstMessageSent: false,
+    };
+    storage.set('paternoster_contacts', JSON.stringify([oldContact]));
+    const loaded = loadContacts();
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0].keyExchangeConfirmed).toBe(false);
   });
 });
 
@@ -124,23 +155,23 @@ describe('contact schema validation', () => {
 
   it('filters out entries with invalid publicKeyHex', () => {
     storage.set('paternoster_contacts', JSON.stringify([
-      { id: 'abc', name: 'Short Hex', publicKeyHex: 'ABCD', addedAt: 0, firstMessageSent: false },
-      { id: 'def', name: 'Lowercase', publicKeyHex: 'ab'.repeat(32), addedAt: 0, firstMessageSent: false },
-      { id: 'ghi', name: 'Non-hex', publicKeyHex: 'ZZ'.repeat(32), addedAt: 0, firstMessageSent: false },
+      { id: 'abc', name: 'Short Hex', publicKeyHex: 'ABCD', addedAt: 0, keyExchangeConfirmed: false },
+      { id: 'def', name: 'Lowercase', publicKeyHex: 'ab'.repeat(32), addedAt: 0, keyExchangeConfirmed: false },
+      { id: 'ghi', name: 'Non-hex', publicKeyHex: 'ZZ'.repeat(32), addedAt: 0, keyExchangeConfirmed: false },
     ]));
     expect(loadContacts()).toEqual([]);
   });
 
   it('filters out entries with wrong field types', () => {
     storage.set('paternoster_contacts', JSON.stringify([
-      { id: 123, name: 'Bad Id', publicKeyHex: 'AB'.repeat(32), addedAt: 0, firstMessageSent: false },
-      { id: 'abc', name: 'Bad Flag', publicKeyHex: 'AB'.repeat(32), addedAt: 0, firstMessageSent: 'yes' },
+      { id: 123, name: 'Bad Id', publicKeyHex: 'AB'.repeat(32), addedAt: 0, keyExchangeConfirmed: false },
+      { id: 'abc', name: 'Bad Flag', publicKeyHex: 'AB'.repeat(32), addedAt: 0, keyExchangeConfirmed: 'yes' },
     ]));
     expect(loadContacts()).toEqual([]);
   });
 
   it('keeps valid entries alongside invalid ones', () => {
-    const valid = { id: 'abc123def456abcd', name: 'Alice', publicKeyHex: 'AB'.repeat(32), addedAt: 1000, firstMessageSent: false };
+    const valid = { id: 'abc123def456abcd', name: 'Alice', publicKeyHex: 'AB'.repeat(32), addedAt: 1000, keyExchangeConfirmed: false };
     storage.set('paternoster_contacts', JSON.stringify([
       { id: 'bad' },
       valid,

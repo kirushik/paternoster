@@ -2,17 +2,17 @@ import './style.css';
 import { checkX25519Support, generateKeyPair, encrypt, decrypt } from './crypto';
 import { compress, decompress } from './compress';
 import { stegoEncode, stegoDecode } from './stego';
-import { serializeWire, deserializeWire, MSG_NO_SENDER, MSG_WITH_SENDER, CONTACT_TOKEN } from './wire';
+import { serializeWire, deserializeWire, MSG_STANDARD, MSG_INTRODUCTION, CONTACT_TOKEN, type WireIntroduction } from './wire';
 import { type ThemeId, THEMES } from './dictionaries';
 import { STORAGE, storageGet, storageSet } from './storage';
-import { u8hex, hexU8, u8eq, u8toBase64url, base64urlToU8, contactCode } from './utils';
+import { u8hex, hexU8, u8eq, concatU8, u8toBase64url, base64urlToU8, contactCode } from './utils';
 import {
   type Contact,
   loadContacts,
   addContact,
   findContactByKey,
   removeContact,
-  markFirstMessageSent,
+  confirmKeyExchange,
   getContactKey,
   getSelectedContactId,
   setSelectedContactId,
@@ -27,12 +27,52 @@ let myPublicKey: Uint8Array;
 let contacts: Contact[] = [];
 let selectedContactId: string | null = null;
 let selectedTheme: ThemeId = 'БОЖЕ';
-let isDecodeMode = false;
 let lastDecodedSender: string | null = null;
 let copyableText = '';
 let copyLabel = '📋 Скопировать';
 let pendingSenderKey: Uint8Array | null = null;
 const contactCodes = new Map<string, string>(); // publicKeyHex → "XXXX XXXX XXXX XXXX"
+
+// ── Chat history (sessionStorage) ───────────────────────
+
+interface ChatMessage {
+  id: string;
+  direction: 'sent' | 'received';
+  plaintext: string;
+  encoded: string;
+  contactId: string;
+  senderName?: string;
+  timestamp: number;
+  theme: ThemeId;
+}
+
+function chatStorageKey(contactId: string): string {
+  return `paternoster_chat_${contactId}`;
+}
+
+function loadChat(contactId: string): ChatMessage[] {
+  try {
+    const raw = sessionStorage.getItem(chatStorageKey(contactId));
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch { return []; }
+}
+
+function saveChat(contactId: string, messages: ChatMessage[]): void {
+  sessionStorage.setItem(chatStorageKey(contactId), JSON.stringify(messages));
+}
+
+function addChatMessage(msg: ChatMessage): void {
+  const messages = loadChat(msg.contactId);
+  messages.push(msg);
+  saveChat(msg.contactId, messages);
+}
+
+function randomChatId(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(6)))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 // ── DOM refs ────────────────────────────────────────────
 
@@ -258,6 +298,7 @@ function render(): void {
   const app = document.getElementById('app')!;
   app.innerHTML = `
     <div class="contacts-bar" id="contacts-bar"></div>
+    <div class="chat-area" id="chat-area"></div>
     <div class="theme-bar">
       <label>Словарь: <select id="theme-select"></select></label>
     </div>
@@ -287,6 +328,7 @@ function render(): void {
 
   renderContacts();
   renderThemeSelect();
+  renderChat();
 }
 
 function renderContacts(): void {
@@ -328,6 +370,72 @@ function renderThemeSelect(): void {
   themeSelect.innerHTML = THEMES.map(t =>
     `<option value="${t.id}"${t.id === selectedTheme ? ' selected' : ''}>${t.id}</option>`
   ).join('');
+}
+
+function renderChat(): void {
+  const chatEl = $('chat-area') as HTMLDivElement;
+
+  // No chat for self-encryption
+  if (!selectedContactId) {
+    chatEl.style.display = 'none';
+    return;
+  }
+
+  const messages = loadChat(selectedContactId);
+  if (messages.length === 0) {
+    chatEl.style.display = 'none';
+    return;
+  }
+
+  chatEl.style.display = 'block';
+  chatEl.textContent = '';
+
+  for (const msg of messages) {
+    const bubble = document.createElement('div');
+    bubble.className = `chat-message ${msg.direction}`;
+
+    const text = document.createElement('div');
+    text.className = 'chat-text';
+    text.textContent = msg.plaintext;
+    bubble.appendChild(text);
+
+    const meta = document.createElement('div');
+    meta.className = 'chat-meta';
+    const time = new Date(msg.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    if (msg.direction === 'received' && msg.senderName) {
+      meta.textContent = `от ${msg.senderName} · ${time}`;
+    } else {
+      meta.textContent = `${time} · ${msg.theme}`;
+    }
+    bubble.appendChild(meta);
+
+    if (msg.direction === 'sent') {
+      const cpBtn = document.createElement('button');
+      cpBtn.className = 'chat-copy-btn';
+      cpBtn.textContent = '📋';
+      cpBtn.title = 'Скопировать зашифрованный текст';
+      const encoded = msg.encoded;
+      cpBtn.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(encoded); } catch {
+          const ta = document.createElement('textarea');
+          ta.value = encoded;
+          ta.style.cssText = 'position:fixed;opacity:0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        }
+        cpBtn.textContent = '✓';
+        setTimeout(() => { cpBtn.textContent = '📋'; }, 1500);
+      });
+      bubble.appendChild(cpBtn);
+    }
+
+    chatEl.appendChild(bubble);
+  }
+
+  // Auto-scroll to bottom
+  chatEl.scrollTop = chatEl.scrollHeight;
 }
 
 function setOutputLabel(text: string): void {
@@ -398,6 +506,7 @@ function wireEvents(): void {
       processInput();
     }
     renderContacts();
+    renderChat();
   });
 
   copyBtn.addEventListener('click', handleCopy);
@@ -421,7 +530,6 @@ async function processInput(): Promise<void> {
     outputEl.textContent = '';
     setOutputLabel('');
     setCopyableText('', '📋 Скопировать');
-    isDecodeMode = false;
     lastDecodedSender = null;
     updateStatus();
     return;
@@ -446,7 +554,6 @@ async function processInput(): Promise<void> {
 }
 
 async function handleEncode(plaintext: string): Promise<void> {
-  isDecodeMode = false;
   lastDecodedSender = null;
 
   const contact = selectedContactId
@@ -456,13 +563,19 @@ async function handleEncode(plaintext: string): Promise<void> {
 
   try {
     const compressed = compress(plaintext);
-    const encrypted = await encrypt(compressed, myPrivateKey, theirKey);
+    const needsIntroduction = contact && !contact.keyExchangeConfirmed;
 
-    // Determine if sender key should be included
-    const includeSenderKey = contact && !contact.firstMessageSent;
-    const wireFrame = includeSenderKey
-      ? serializeWire({ type: MSG_WITH_SENDER, senderPublicKey: myPublicKey, payload: encrypted })
-      : serializeWire({ type: MSG_NO_SENDER, payload: encrypted });
+    let wireFrame: Uint8Array;
+    if (needsIntroduction) {
+      // MSG_INTRODUCTION: ephemeral key for ECDH, real sender key inside encrypted envelope
+      const eph = await generateKeyPair();
+      const introPayload = concatU8(myPublicKey, compressed);
+      const encrypted = await encrypt(introPayload, eph.privateKey, theirKey);
+      wireFrame = serializeWire({ type: MSG_INTRODUCTION, ephemeralPublicKey: eph.publicKey, payload: encrypted });
+    } else {
+      const encrypted = await encrypt(compressed, myPrivateKey, theirKey);
+      wireFrame = serializeWire({ type: MSG_STANDARD, payload: encrypted });
+    }
 
     const stegoText = stegoEncode(wireFrame, selectedTheme);
     outputEl.textContent = stegoText;
@@ -487,26 +600,81 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
     return;
   }
 
-  // It's an encrypted message — try to decrypt with known contacts
-  isDecodeMode = true;
 
-  // If sender key is included, try it first
-  const keysToTry: { name: string; key: Uint8Array }[] = [];
 
-  if (frame.senderPublicKey) {
-    const known = findContactByKey(frame.senderPublicKey);
-    keysToTry.push({
-      name: known?.name ?? '(новый контакт)',
-      key: frame.senderPublicKey,
-    });
+  // MSG_INTRODUCTION: decrypt with ephemeral key, extract sender from payload
+  if (frame.type === MSG_INTRODUCTION) {
+    const intro = frame as WireIntroduction;
+    try {
+      const decrypted = await decrypt(intro.payload, myPrivateKey, intro.ephemeralPublicKey);
+      // First 32 bytes = sender's real public key, rest = compressed message
+      if (decrypted.length < 33) throw new Error('payload too short');
+      const senderPub = decrypted.slice(0, 32);
+      const compressedMessage = decrypted.slice(32);
+      const plaintext = decompress(compressedMessage);
+
+      const knownSender = findContactByKey(senderPub);
+      outputEl.textContent = plaintext;
+      setCopyableText(plaintext, 'Скопировать текст');
+
+      if (knownSender) {
+        // Known contact sent us a message — confirm key exchange
+        if (!knownSender.keyExchangeConfirmed) {
+          confirmKeyExchange(knownSender.id);
+          contacts = loadContacts();
+        }
+        lastDecodedSender = knownSender.name;
+
+        // Commit to chat + auto-clear
+        addChatMessage({
+          id: randomChatId(),
+          direction: 'received',
+          plaintext,
+          encoded: inputEl.value.trim(),
+          contactId: knownSender.id,
+          senderName: knownSender.name,
+          timestamp: Date.now(),
+          theme: _theme,
+        });
+        if (selectedContactId !== knownSender.id) {
+          selectedContactId = knownSender.id;
+          setSelectedContactId(knownSender.id);
+          renderContacts();
+        }
+        renderChat();
+        inputEl.value = '';
+        autoGrow(inputEl);
+        outputEl.textContent = '';
+        setOutputLabel('');
+        setCopyableText('', '📋 Скопировать');
+      } else {
+        // Unknown sender — offer to save (no chat commit until saved)
+        pendingSenderKey = senderPub;
+        lastDecodedSender = '(новый контакт)';
+        outputEl.textContent = plaintext;
+        setCopyableText(plaintext, 'Скопировать текст');
+        setOutputLabel('Расшифровано · от нового контакта');
+        addSaveContactBtn();
+      }
+
+      updateStatus(`от ${lastDecodedSender}`);
+      return;
+    } catch {
+      // Decryption failed — not for us or corrupted
+    }
+
+    showError('Не удалось расшифровать. Возможно, сообщение не для вас');
+    outputEl.textContent = '';
+    setOutputLabel('');
+    updateStatus();
+    return;
   }
 
-  // Add all known contacts
+  // MSG_STANDARD: try each contact's key via ECDH
+  const keysToTry: { name: string; key: Uint8Array; contactId?: string }[] = [];
+
   for (const c of contacts) {
-    const k = getContactKey(c);
-    if (!keysToTry.some(e => u8eq(e.key, k))) {
-      keysToTry.push({ name: c.name, key: k });
-    }
+    keysToTry.push({ name: c.name, key: getContactKey(c), contactId: c.id });
   }
 
   // Try self-key too
@@ -514,7 +682,7 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
     keysToTry.push({ name: 'Я', key: myPublicKey });
   }
 
-  for (const { name, key } of keysToTry) {
+  for (const { name, key, contactId } of keysToTry) {
     try {
       const decrypted = await decrypt(frame.payload, myPrivateKey, key);
       const plaintext = decompress(decrypted);
@@ -522,11 +690,36 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
       setCopyableText(plaintext, 'Скопировать текст');
       lastDecodedSender = name;
 
-      // If sender key was included and sender is unknown — show message first, then offer to save
-      if (frame.senderPublicKey && !findContactByKey(frame.senderPublicKey)) {
-        pendingSenderKey = frame.senderPublicKey;
-        setOutputLabel('Расшифровано · от нового контакта');
-        addSaveContactBtn();
+      // Confirm key exchange for the sender contact
+      if (contactId) {
+        const senderContact = contacts.find(c => c.id === contactId);
+        if (senderContact && !senderContact.keyExchangeConfirmed) {
+          confirmKeyExchange(senderContact.id);
+          contacts = loadContacts();
+        }
+
+        // Commit to chat + auto-clear
+        addChatMessage({
+          id: randomChatId(),
+          direction: 'received',
+          plaintext,
+          encoded: inputEl.value.trim(),
+          contactId,
+          senderName: name,
+          timestamp: Date.now(),
+          theme: _theme,
+        });
+        if (selectedContactId !== contactId) {
+          selectedContactId = contactId;
+          setSelectedContactId(contactId);
+          renderContacts();
+        }
+        renderChat();
+        inputEl.value = '';
+        autoGrow(inputEl);
+        outputEl.textContent = '';
+        setOutputLabel('');
+        setCopyableText('', '📋 Скопировать');
       } else {
         setOutputLabel(`Расшифровано · от ${lastDecodedSender}`);
       }
@@ -892,12 +1085,20 @@ async function handleCopy(): Promise<void> {
     document.body.removeChild(textarea);
   }
 
-  // Mark first message sent for selected contact
-  if (!isDecodeMode && selectedContactId) {
-    const contact = contacts.find(c => c.id === selectedContactId);
-    if (contact && !contact.firstMessageSent) {
-      markFirstMessageSent(contact.id);
-      contacts = loadContacts();
+  // Commit sent message to chat history
+  if (selectedContactId && copyLabel === 'Скопировать сообщение') {
+    const plaintext = inputEl.value.trim();
+    if (plaintext) {
+      addChatMessage({
+        id: randomChatId(),
+        direction: 'sent',
+        plaintext,
+        encoded: copyableText,
+        contactId: selectedContactId,
+        timestamp: Date.now(),
+        theme: selectedTheme,
+      });
+      renderChat();
     }
   }
 
