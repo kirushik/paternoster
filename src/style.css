@@ -116,22 +116,29 @@ body {
   margin-top: 0.25rem;
 }
 
-.chat-copy-btn {
-  position: absolute;
-  top: 0.25rem;
-  right: 0.25rem;
+.chat-actions {
+  display: flex;
+  gap: 0.25rem;
+  justify-content: flex-end;
+  margin-top: 0.25rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.chat-message:hover .chat-actions,
+.chat-actions:has(.playing) {
+  opacity: 0.7;
+}
+.chat-tts-btn, .chat-copy-btn {
   border: none;
   background: none;
   font-size: 0.75rem;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s;
   padding: 0.125rem;
 }
-.chat-message:hover .chat-copy-btn {
-  opacity: 0.7;
+.chat-tts-btn:hover, .chat-copy-btn:hover {
+  opacity: 1 !important;
 }
-.chat-copy-btn:hover {
+.chat-tts-btn.playing {
   opacity: 1 !important;
 }
 
@@ -231,6 +238,10 @@ textarea#input::placeholder {
 }
 .action-btn:active {
   background: #c7c7cc;
+}
+.action-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 /* ── Status bar ────────────────────────────────────── */

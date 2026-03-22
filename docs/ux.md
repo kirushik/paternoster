@@ -102,6 +102,12 @@ When no contact is selected ("Я" is active), messages are encrypted to your own
 
 The speaker button (🔊) reads the steganographic output aloud using the browser's SpeechSynthesis API. This serves as a cover story — "it's a prayer reading app." The TTS language matches the theme: Russian for БОЖЕ/РОССИЯ/СССР/БУХАЮ, Chinese for КИТАЙ, Latin for PATER, English for emoji.
 
+**Voice selection.** `tts.ts` picks a voice matching the theme's language via `getVoices()`. If no matching voice is found, `utterance.voice` is left unset so the browser resolves via `utterance.lang` alone (some browsers have cloud voices not enumerated by `getVoices()`). Never falls back to a Russian voice for non-Russian themes — that caused the Russian engine to describe non-Russian characters (e.g. "китайская буква") instead of pronouncing them.
+
+**Graceful degradation.** `hasVoiceForLang(lang)` checks voice availability. The TTS button is disabled (dimmed, `cursor: not-allowed`) when no voice matches the current theme. Re-checks on `voiceschanged` (voices load asynchronously).
+
+**Chat TTS.** Each chat message bubble has a 🔊 button that reads the ciphertext aloud using the message's theme language. Disabled when no matching voice is available.
+
 ## Terminology
 
 All UI text is Russian. Terms are chosen for clarity and non-technical feel.

@@ -17,7 +17,7 @@ import {
   getSelectedContactId,
   setSelectedContactId,
 } from './contacts';
-import { speak, stopSpeaking, isSpeaking } from './tts';
+import { speak, stopSpeaking, isSpeaking, hasVoiceForLang, onVoicesChanged } from './tts';
 import { exportIdentity, importIdentity } from './identity';
 import { loadChat, addChatMessage, clearChat, randomChatId } from './chat';
 
@@ -374,12 +374,45 @@ function renderChat(): void {
     }
     bubble.appendChild(meta);
 
+    // Actions row: TTS + copy
+    const actions = document.createElement('div');
+    actions.className = 'chat-actions';
+
+    // TTS button — reads ciphertext aloud (only when a voice is available)
+    const msgTheme = THEMES.find(t => t.id === msg.theme);
+    const msgLang = msgTheme?.lang ?? 'ru-RU';
+    const encoded = msg.encoded;
+    if (hasVoiceForLang(msgLang)) {
+      const tts = document.createElement('button');
+      tts.className = 'chat-tts-btn';
+      tts.textContent = '🔊';
+      tts.title = 'Прочитать вслух';
+      tts.addEventListener('click', () => {
+        if (isSpeaking()) {
+          stopSpeaking();
+          tts.textContent = '🔊';
+          tts.classList.remove('playing');
+          return;
+        }
+        speak(encoded, msgLang);
+        tts.textContent = '🔇';
+        tts.classList.add('playing');
+        const poll = setInterval(() => {
+          if (!isSpeaking()) {
+            tts.textContent = '🔊';
+            tts.classList.remove('playing');
+            clearInterval(poll);
+          }
+        }, 300);
+      });
+      actions.appendChild(tts);
+    }
+
     if (msg.direction === 'sent') {
       const cpBtn = document.createElement('button');
       cpBtn.className = 'chat-copy-btn';
       cpBtn.textContent = '📋';
       cpBtn.title = 'Скопировать зашифрованный текст';
-      const encoded = msg.encoded;
       cpBtn.addEventListener('click', async () => {
         try { await navigator.clipboard.writeText(encoded); } catch {
           const ta = document.createElement('textarea');
@@ -393,8 +426,10 @@ function renderChat(): void {
         cpBtn.textContent = '✓';
         setTimeout(() => { cpBtn.textContent = '📋'; }, 1500);
       });
-      bubble.appendChild(cpBtn);
+      actions.appendChild(cpBtn);
     }
+
+    bubble.appendChild(actions);
 
     chatEl.appendChild(bubble);
   }
@@ -452,8 +487,13 @@ function wireEvents(): void {
   themeSelect.addEventListener('change', () => {
     selectedTheme = themeSelect.value as ThemeId;
     storageSet(STORAGE.selectedTheme, selectedTheme);
+    updateTtsAvailability();
     processInput();
   });
+
+  // TTS: check voice availability on init and when voices load asynchronously
+  updateTtsAvailability();
+  onVoicesChanged(updateTtsAvailability);
 
   contactsEl.addEventListener('click', (e) => {
     // Check if × delete button was clicked
@@ -1135,6 +1175,14 @@ async function handleCopy(): Promise<void> {
   // Visual feedback
   copyBtn.textContent = '✓ Скопировано';
   setTimeout(() => { copyBtn.textContent = copyLabel; }, 1500);
+}
+
+function updateTtsAvailability(): void {
+  const theme = THEMES.find(t => t.id === selectedTheme);
+  const lang = theme?.lang ?? 'ru-RU';
+  const available = hasVoiceForLang(lang);
+  ttsBtn.disabled = !available;
+  ttsBtn.title = available ? 'Прочитать вслух' : 'Голос для этой темы недоступен';
 }
 
 function handleTts(): void {
