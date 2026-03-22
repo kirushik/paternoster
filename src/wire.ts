@@ -1,72 +1,86 @@
 /**
- * Wire format: serialize/deserialize message and contact token structures.
+ * Wire format: headerless frames. Every frame starts with random bytes.
  *
- * Outer framing:
- *   Type 0x10 — encrypted message, no sender key (key exchange confirmed)
- *   Type 0x12 — encrypted message with ephemeral key (introduction / key exchange unconfirmed)
- *                Sender's real public key is INSIDE the encrypted envelope.
- *   Type 0x20 — contact token (unencrypted)
+ * Frame structures:
+ *   MSG:     [seed:6][ciphertext][tag:12]          — seed[0] top 2 bits = comp mode
+ *   INTRO:   [eph_pub:32][seed:6][ciphertext][tag:12] — seed at byte 32
+ *   CONTACT: [pub:32][check:1]                     — check byte at the END
+ *
+ * Frame type is determined by trial decryption (MSG/INTRO) or check byte (CONTACT).
+ * See docs/crypto.md for full spec.
  */
 
 import { concatU8 } from './utils';
+import { SEED_LENGTH } from './crypto';
 
-export const MSG_STANDARD = 0x10;
-export const MSG_INTRODUCTION = 0x12;
-export const CONTACT_TOKEN = 0x20;
+// ── Compression mode constants (2-bit values, stored in seed[0] bits 7-6) ──
 
-export interface WireMessage {
-  type: typeof MSG_STANDARD;
-  payload: Uint8Array; // [IV:12][ciphertext+tag]
+export const COMP_LITERAL     = 0; // 0b00
+export const COMP_SQUASH_SMAZ = 1; // 0b01
+export const COMP_SQUASH_ONLY = 2; // 0b10
+// 3 = reserved
+
+// ── CONTACT check byte ─────────────────────────────────
+
+/** Compute 2 check bytes for a CONTACT frame. 1/65536 false positive rate. */
+export function contactCheckBytes(pub: Uint8Array): [number, number] {
+  let a = 0x5A, b = 0xA5;
+  for (let i = 0; i < pub.length; i++) {
+    a ^= pub[i];
+    b ^= pub[i] ^ (i & 0xFF);
+  }
+  return [a, b];
 }
 
-export interface WireIntroduction {
-  type: typeof MSG_INTRODUCTION;
-  ephemeralPublicKey: Uint8Array; // 32 bytes — throwaway key, reveals nothing about sender
-  payload: Uint8Array; // [IV:12][ciphertext(sender_pub:32 + compressed_message)]
+// ── Serialize ───────────────────────────────────────────
+
+/** Serialize a MSG frame: just the raw encrypted payload (seed + ciphertext + tag). */
+export function serializeMsg(payload: Uint8Array): Uint8Array {
+  return payload;
 }
 
-export interface WireContactToken {
-  type: typeof CONTACT_TOKEN;
-  publicKey: Uint8Array; // 32 bytes
+/** Serialize an INTRO frame: eph_pub + encrypted payload. */
+export function serializeIntro(ephemeralPublicKey: Uint8Array, payload: Uint8Array): Uint8Array {
+  return concatU8(ephemeralPublicKey, payload);
 }
 
-export type WireFrame = WireMessage | WireIntroduction | WireContactToken;
-
-/** Serialize a wire frame to bytes. */
-export function serializeWire(frame: WireFrame): Uint8Array {
-  if (frame.type === CONTACT_TOKEN) {
-    return concatU8(new Uint8Array([frame.type]), frame.publicKey);
-  }
-  if (frame.type === MSG_INTRODUCTION) {
-    return concatU8(new Uint8Array([frame.type]), frame.ephemeralPublicKey, frame.payload);
-  }
-  // MSG_STANDARD
-  return concatU8(new Uint8Array([frame.type]), frame.payload);
+/** Serialize a CONTACT frame: pub + 2 check bytes at the end. */
+export function serializeContact(publicKey: Uint8Array): Uint8Array {
+  const [a, b] = contactCheckBytes(publicKey);
+  return concatU8(publicKey, new Uint8Array([a, b]));
 }
 
-/** Deserialize bytes into a wire frame. Returns null if invalid. */
-export function deserializeWire(data: Uint8Array): WireFrame | null {
-  if (data.length < 2) return null;
-  const type = data[0];
+// ── Parse helpers (no type detection — caller tries each) ──
 
-  if (type === CONTACT_TOKEN) {
-    if (data.length !== 33) return null;
-    return { type, publicKey: data.slice(1, 33) };
-  }
+/** Minimum MSG size: seed(6) + ciphertext(1) + tag(8) = 15 bytes. */
+const MIN_MSG_SIZE = SEED_LENGTH + 1 + 8;
 
-  if (type === MSG_INTRODUCTION) {
-    if (data.length < 46) return null; // 1 + 32 + 12 + at least 1
-    return {
-      type,
-      ephemeralPublicKey: data.slice(1, 33),
-      payload: data.slice(33),
-    };
-  }
+/** Minimum INTRO size: eph_pub(32) + ciphertext(1) + tag(8) = 41 bytes. No seed — ephemeral ECDH provides uniqueness. */
+const MIN_INTRO_SIZE = 32 + 1 + 8;
 
-  if (type === MSG_STANDARD) {
-    if (data.length < 14) return null; // 1 + 12 + at least 1
-    return { type, payload: data.slice(1) };
-  }
+/** Check if data could be a MSG frame (length check only). */
+export function couldBeMsg(data: Uint8Array): boolean {
+  return data.length >= MIN_MSG_SIZE;
+}
 
-  return null;
+/** Check if data could be an INTRO frame (length check only). */
+export function couldBeIntro(data: Uint8Array): boolean {
+  return data.length >= MIN_INTRO_SIZE;
+}
+
+/** Try to parse as CONTACT. Returns the 32-byte public key or null. */
+export function tryParseContact(data: Uint8Array): Uint8Array | null {
+  if (data.length !== 34) return null;
+  const pub = data.slice(0, 32);
+  const [a, b] = contactCheckBytes(pub);
+  if (data[32] !== a || data[33] !== b) return null;
+  return pub;
+}
+
+/** Split INTRO bytes: first 32 = eph_pub, rest = encrypted payload (seed + ciphertext + tag). */
+export function splitIntro(data: Uint8Array): { ephPub: Uint8Array; payload: Uint8Array } {
+  return {
+    ephPub: data.slice(0, 32),
+    payload: data.slice(32),
+  };
 }

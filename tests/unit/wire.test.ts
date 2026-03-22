@@ -1,90 +1,111 @@
 import { describe, it, expect } from 'vitest';
-import { serializeWire, deserializeWire, MSG_STANDARD, MSG_INTRODUCTION, CONTACT_TOKEN } from '../../src/wire';
+import {
+  serializeMsg, serializeIntro, serializeContact,
+  couldBeMsg, couldBeIntro, splitIntro, tryParseContact,
+  contactCheckBytes,
+  COMP_LITERAL, COMP_SQUASH_SMAZ, COMP_SQUASH_ONLY,
+} from '../../src/wire';
 
-describe('wire format roundtrip', () => {
-  it('MSG_STANDARD roundtrips', () => {
-    const payload = crypto.getRandomValues(new Uint8Array(50));
-    const wire = serializeWire({ type: MSG_STANDARD, payload });
-    const parsed = deserializeWire(wire);
-    expect(parsed).not.toBeNull();
-    expect(parsed!.type).toBe(MSG_STANDARD);
-    expect((parsed as any).payload).toEqual(payload);
-  });
-
-  it('MSG_INTRODUCTION roundtrips', () => {
-    const ephemeralKey = crypto.getRandomValues(new Uint8Array(32));
-    const payload = crypto.getRandomValues(new Uint8Array(50));
-    const wire = serializeWire({ type: MSG_INTRODUCTION, ephemeralPublicKey: ephemeralKey, payload });
-    const parsed = deserializeWire(wire);
-    expect(parsed).not.toBeNull();
-    expect(parsed!.type).toBe(MSG_INTRODUCTION);
-    expect((parsed as any).ephemeralPublicKey).toEqual(ephemeralKey);
-    expect((parsed as any).payload).toEqual(payload);
-  });
-
-  it('CONTACT_TOKEN roundtrips', () => {
-    const pubKey = crypto.getRandomValues(new Uint8Array(32));
-    const wire = serializeWire({ type: CONTACT_TOKEN, publicKey: pubKey });
-    const parsed = deserializeWire(wire);
-    expect(parsed).not.toBeNull();
-    expect(parsed!.type).toBe(CONTACT_TOKEN);
-    expect((parsed as any).publicKey).toEqual(pubKey);
+describe('MSG serialization', () => {
+  it('serializes as raw payload (no header)', () => {
+    const payload = new Uint8Array([1, 2, 3, 4, 5]);
+    expect(serializeMsg(payload)).toEqual(payload);
   });
 });
 
-describe('wire format structure', () => {
-  it('CONTACT_TOKEN is exactly 33 bytes', () => {
-    const wire = serializeWire({ type: CONTACT_TOKEN, publicKey: new Uint8Array(32) });
-    expect(wire.length).toBe(33);
-    expect(wire[0]).toBe(0x20);
-  });
-
-  it('MSG_STANDARD starts with 0x10', () => {
-    const wire = serializeWire({ type: MSG_STANDARD, payload: new Uint8Array(20) });
-    expect(wire[0]).toBe(0x10);
-    expect(wire.length).toBe(21); // 1 type + 20 payload
-  });
-
-  it('MSG_INTRODUCTION starts with 0x12, includes 32-byte ephemeral key', () => {
+describe('INTRO serialization', () => {
+  it('is eph_pub + payload with no header or seed', () => {
     const ephKey = new Uint8Array(32).fill(0xAB);
-    const wire = serializeWire({ type: MSG_INTRODUCTION, ephemeralPublicKey: ephKey, payload: new Uint8Array(20) });
-    expect(wire[0]).toBe(0x12);
-    expect(wire.length).toBe(53); // 1 + 32 + 20
-    expect(wire.slice(1, 33)).toEqual(ephKey);
+    const payload = new Uint8Array([1, 2, 3]);
+    const wire = serializeIntro(ephKey, payload);
+    expect(wire.length).toBe(35);
+    expect(wire.slice(0, 32)).toEqual(ephKey);
+    expect(wire.slice(32)).toEqual(payload);
   });
 });
 
-describe('wire deserialization rejects invalid input', () => {
-  it('returns null for empty data', () => {
-    expect(deserializeWire(new Uint8Array([]))).toBeNull();
+describe('CONTACT serialization', () => {
+  it('is pub + 2 check bytes at the end', () => {
+    const pub = crypto.getRandomValues(new Uint8Array(32));
+    const wire = serializeContact(pub);
+    expect(wire.length).toBe(34); // 32 pub + 2 check
+    expect(wire.slice(0, 32)).toEqual(pub);
+    const [a, b] = contactCheckBytes(pub);
+    expect(wire[32]).toBe(a);
+    expect(wire[33]).toBe(b);
+  });
+});
+
+describe('CONTACT check bytes', () => {
+  it('are deterministic', () => {
+    const pub = crypto.getRandomValues(new Uint8Array(32));
+    expect(contactCheckBytes(pub)).toEqual(contactCheckBytes(pub));
   });
 
-  it('returns null for single byte', () => {
-    expect(deserializeWire(new Uint8Array([0x10]))).toBeNull();
+  it('differ for different keys', () => {
+    const pub1 = crypto.getRandomValues(new Uint8Array(32));
+    const pub2 = crypto.getRandomValues(new Uint8Array(32));
+    // Overwhelming probability of different check bytes
+    const [a1, b1] = contactCheckBytes(pub1);
+    const [a2, b2] = contactCheckBytes(pub2);
+    expect(a1 !== a2 || b1 !== b2).toBe(true);
   });
 
-  it('returns null for unknown type', () => {
-    expect(deserializeWire(new Uint8Array([0x99, 0x00, 0x00]))).toBeNull();
+  it('are not both zero for all-zero key', () => {
+    const pub = new Uint8Array(32);
+    const [a, b] = contactCheckBytes(pub);
+    expect(a !== 0 || b !== 0).toBe(true);
+  });
+});
+
+describe('tryParseContact', () => {
+  it('parses valid contact token', () => {
+    const pub = crypto.getRandomValues(new Uint8Array(32));
+    const wire = serializeContact(pub);
+    expect(tryParseContact(wire)).toEqual(pub);
   });
 
-  it('returns null for too-short CONTACT_TOKEN', () => {
-    expect(deserializeWire(new Uint8Array([0x20, 0x01, 0x02]))).toBeNull();
+  it('rejects wrong length', () => {
+    expect(tryParseContact(new Uint8Array(32))).toBeNull();
+    expect(tryParseContact(new Uint8Array(33))).toBeNull();
+    expect(tryParseContact(new Uint8Array(35))).toBeNull();
   });
 
-  it('returns null for too-short MSG_INTRODUCTION', () => {
-    // Type + 10 bytes (need at least 32 ephemeral + 12 IV + 1 ciphertext)
-    expect(deserializeWire(new Uint8Array(11).fill(0x12))).toBeNull();
+  it('rejects wrong check bytes', () => {
+    const pub = crypto.getRandomValues(new Uint8Array(32));
+    const wire = serializeContact(pub);
+    wire[32] ^= 0xFF;
+    expect(tryParseContact(wire)).toBeNull();
+  });
+});
+
+describe('length checks', () => {
+  it('couldBeMsg requires minimum 15 bytes (seed:6 + ct:1 + tag:8)', () => {
+    expect(couldBeMsg(new Uint8Array(14))).toBe(false);
+    expect(couldBeMsg(new Uint8Array(15))).toBe(true);
   });
 
-  it('returns null for CONTACT_TOKEN with trailing bytes', () => {
-    const data = new Uint8Array(34);
-    data[0] = 0x20;
-    expect(deserializeWire(data)).toBeNull();
+  it('couldBeIntro requires minimum 41 bytes (eph:32 + ct:1 + tag:8)', () => {
+    expect(couldBeIntro(new Uint8Array(40))).toBe(false);
+    expect(couldBeIntro(new Uint8Array(41))).toBe(true);
   });
+});
 
-  it('returns null for old MSG_WITH_SENDER type (0x11)', () => {
-    const data = new Uint8Array(46);
-    data[0] = 0x11;
-    expect(deserializeWire(data)).toBeNull();
+describe('splitIntro', () => {
+  it('splits first 32 bytes as eph_pub, rest as payload', () => {
+    const data = new Uint8Array(60);
+    data.fill(0xAA, 0, 32);
+    data.fill(0xBB, 32, 60);
+    const { ephPub, payload } = splitIntro(data);
+    expect(ephPub.length).toBe(32);
+    expect(payload.length).toBe(28);
+  });
+});
+
+describe('compression mode constants', () => {
+  it('are 2-bit values', () => {
+    expect(COMP_LITERAL).toBe(0);
+    expect(COMP_SQUASH_SMAZ).toBe(1);
+    expect(COMP_SQUASH_ONLY).toBe(2);
   });
 });

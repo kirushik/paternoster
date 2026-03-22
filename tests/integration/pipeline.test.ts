@@ -1,12 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { generateKeyPair, encrypt, decrypt } from '../../src/crypto';
+import { generateKeyPair, encrypt, decrypt, encryptIntro, decryptIntro, directionByte, seedCompMode, CLASS_MSG } from '../../src/crypto';
 import { compress, decompress } from '../../src/compress';
 import { stegoEncode, stegoDecode } from '../../src/stego';
-import { serializeWire, deserializeWire, MSG_STANDARD, MSG_INTRODUCTION, type WireMessage, type WireIntroduction } from '../../src/wire';
-import { type ThemeId, THEMES } from '../../src/dictionaries';
+import { serializeMsg, serializeIntro, couldBeIntro, splitIntro } from '../../src/wire';
+import { type ThemeId } from '../../src/dictionaries';
 import { concatU8 } from '../../src/utils';
 
-// Full pipeline: plaintext → compress → encrypt → wire → stego → stegoDecode → wire → decrypt → decompress
 async function fullRoundtrip(
   plaintext: string,
   themeId: ThemeId,
@@ -15,58 +14,51 @@ async function fullRoundtrip(
   const alice = await generateKeyPair();
   const bob = await generateKeyPair();
 
-  // Encode
-  const compressed = compress(plaintext);
+  const { payload: compressed, compMode } = compress(plaintext);
 
   let wireFrame: Uint8Array;
   if (withIntroduction) {
-    // MSG_INTRODUCTION: ephemeral key, sender's real key inside encrypted envelope
     const eph = await generateKeyPair();
-    const introPayload = concatU8(alice.publicKey, compressed);
-    const encrypted = await encrypt(introPayload, eph.privateKey, bob.publicKey);
-    wireFrame = serializeWire({ type: MSG_INTRODUCTION, ephemeralPublicKey: eph.publicKey, payload: encrypted });
+    // Seedless INTRO: comp mode inside encrypted plaintext
+    const introPayload = concatU8(new Uint8Array([compMode]), alice.publicKey, compressed);
+    const encrypted = await encryptIntro(introPayload, eph.privateKey, bob.publicKey, eph.publicKey, bob.publicKey);
+    wireFrame = serializeIntro(eph.publicKey, encrypted);
   } else {
-    const encrypted = await encrypt(compressed, alice.privateKey, bob.publicKey);
-    wireFrame = serializeWire({ type: MSG_STANDARD, payload: encrypted });
+    const encrypted = await encrypt(compressed, alice.privateKey, bob.publicKey, alice.publicKey, bob.publicKey, CLASS_MSG, compMode);
+    wireFrame = serializeMsg(encrypted);
   }
   const stegoText = stegoEncode(wireFrame, themeId);
 
   // Decode
   const decoded = stegoDecode(stegoText);
   expect(decoded).not.toBeNull();
-  const frame = deserializeWire(decoded!.bytes);
-  expect(frame).not.toBeNull();
+  const bytes = decoded!.bytes;
 
   if (withIntroduction) {
-    expect(frame!.type).toBe(MSG_INTRODUCTION);
-    const intro = frame as WireIntroduction;
-    // Decrypt with ephemeral key
-    const decrypted = await decrypt(intro.payload, bob.privateKey, intro.ephemeralPublicKey);
-    // Extract sender key (first 32 bytes) and message
-    const senderPub = decrypted.slice(0, 32);
+    expect(couldBeIntro(bytes)).toBe(true);
+    const { ephPub, payload } = splitIntro(bytes);
+    const decrypted = await decryptIntro(payload, bob.privateKey, ephPub, ephPub, bob.publicKey);
+    const decCompMode = decrypted[0];
+    const senderPub = decrypted.slice(1, 33);
     expect(senderPub).toEqual(alice.publicKey);
-    return decompress(decrypted.slice(32));
+    return decompress(decrypted.slice(33), decCompMode);
   } else {
-    expect(frame!.type).toBe(MSG_STANDARD);
-    const msg = frame as WireMessage;
-    const decrypted = await decrypt(msg.payload, bob.privateKey, alice.publicKey);
-    return decompress(decrypted);
+    const decrypted = await decrypt(bytes, bob.privateKey, alice.publicKey, alice.publicKey, bob.publicKey, CLASS_MSG);
+    const decCompMode = seedCompMode(bytes[0]);
+    return decompress(decrypted, decCompMode);
   }
 }
 
 describe('full pipeline roundtrip', () => {
-  // Test all themes that have deterministic enough encoding
   const themes: ThemeId[] = ['БОЖЕ', 'РОССИЯ', 'СССР', 'БУХАЮ', 'КИТАЙ', 'PATER', '🙂', 'hex'];
 
   for (const themeId of themes) {
     it(`roundtrips through ${themeId} without introduction`, async () => {
-      const result = await fullRoundtrip('Привет, мир!', themeId, false);
-      expect(result).toBe('Привет, мир!');
+      expect(await fullRoundtrip('Привет, мир!', themeId, false)).toBe('Привет, мир!');
     });
 
     it(`roundtrips through ${themeId} with introduction`, async () => {
-      const result = await fullRoundtrip('Тестовое сообщение', themeId, true);
-      expect(result).toBe('Тестовое сообщение');
+      expect(await fullRoundtrip('Тестовое сообщение', themeId, true)).toBe('Тестовое сообщение');
     });
   }
 });
@@ -95,11 +87,10 @@ describe('cross-key encryption', () => {
     const alice = await generateKeyPair();
     const bob = await generateKeyPair();
 
-    const plaintext = 'Секретное сообщение';
-    const compressed = compress(plaintext);
-    const encrypted = await encrypt(compressed, alice.privateKey, bob.publicKey);
-    const decrypted = await decrypt(encrypted, bob.privateKey, alice.publicKey);
-    expect(decompress(decrypted)).toBe(plaintext);
+    const { payload: compressed, compMode } = compress('Секретное сообщение');
+    const encrypted = await encrypt(compressed, alice.privateKey, bob.publicKey, alice.publicKey, bob.publicKey, CLASS_MSG, compMode);
+    const decrypted = await decrypt(encrypted, bob.privateKey, alice.publicKey, alice.publicKey, bob.publicKey, CLASS_MSG);
+    expect(decompress(decrypted, seedCompMode(encrypted[0]))).toBe('Секретное сообщение');
   });
 
   it('wrong key fails to decrypt', async () => {
@@ -107,75 +98,128 @@ describe('cross-key encryption', () => {
     const bob = await generateKeyPair();
     const eve = await generateKeyPair();
 
-    const compressed = compress('Секрет');
-    const encrypted = await encrypt(compressed, alice.privateKey, bob.publicKey);
-
-    // Eve (wrong key) tries to decrypt
-    await expect(decrypt(encrypted, eve.privateKey, alice.publicKey)).rejects.toThrow();
+    const { payload: compressed, compMode } = compress('Секрет');
+    const encrypted = await encrypt(compressed, alice.privateKey, bob.publicKey, alice.publicKey, bob.publicKey, CLASS_MSG, compMode);
+    await expect(decrypt(encrypted, eve.privateKey, alice.publicKey, alice.publicKey, eve.publicKey, CLASS_MSG)).rejects.toThrow();
   });
 
   it('self-encryption works', async () => {
     const alice = await generateKeyPair();
-    const compressed = compress('Записка самому себе');
-    const encrypted = await encrypt(compressed, alice.privateKey, alice.publicKey);
-    const decrypted = await decrypt(encrypted, alice.privateKey, alice.publicKey);
-    expect(decompress(decrypted)).toBe('Записка самому себе');
+    const { payload: compressed, compMode } = compress('Записка');
+    const encrypted = await encrypt(compressed, alice.privateKey, alice.publicKey, alice.publicKey, alice.publicKey, CLASS_MSG, compMode);
+    const decrypted = await decrypt(encrypted, alice.privateKey, alice.publicKey, alice.publicKey, alice.publicKey, CLASS_MSG);
+    expect(decompress(decrypted, seedCompMode(encrypted[0]))).toBe('Записка');
   });
 });
 
-describe('MSG_INTRODUCTION sender key extraction', () => {
-  it('sender key is correctly embedded inside encrypted payload and extractable', async () => {
+describe('INTRO sender key extraction', () => {
+  it('sender key is correctly embedded and extractable', async () => {
     const alice = await generateKeyPair();
     const bob = await generateKeyPair();
     const eph = await generateKeyPair();
 
-    const compressed = compress('Привет');
-    const introPayload = concatU8(alice.publicKey, compressed);
-    const encrypted = await encrypt(introPayload, eph.privateKey, bob.publicKey);
-    const wire = serializeWire({
-      type: MSG_INTRODUCTION,
-      ephemeralPublicKey: eph.publicKey,
-      payload: encrypted,
-    });
+    const { payload: compressed, compMode } = compress('Привет');
+    const introPayload = concatU8(new Uint8Array([compMode]), alice.publicKey, compressed);
+    const encrypted = await encryptIntro(introPayload, eph.privateKey, bob.publicKey, eph.publicKey, bob.publicKey);
+    const wire = serializeIntro(eph.publicKey, encrypted);
 
     const stegoText = stegoEncode(wire, 'БОЖЕ');
     const decoded = stegoDecode(stegoText)!;
-    const frame = deserializeWire(decoded.bytes) as WireIntroduction;
+    const { ephPub, payload } = splitIntro(decoded.bytes);
 
-    expect(frame.type).toBe(MSG_INTRODUCTION);
-    expect(frame.ephemeralPublicKey).toEqual(eph.publicKey);
-
-    // Bob decrypts using his private key + ephemeral public key
-    const decrypted = await decrypt(frame.payload, bob.privateKey, frame.ephemeralPublicKey);
-    const senderPub = decrypted.slice(0, 32);
-    const message = decrypted.slice(32);
-
-    expect(senderPub).toEqual(alice.publicKey);
-    expect(decompress(message)).toBe('Привет');
+    expect(ephPub).toEqual(eph.publicKey);
+    const decrypted = await decryptIntro(payload, bob.privateKey, ephPub, ephPub, bob.publicKey);
+    expect(decrypted[0]).toBe(compMode);
+    expect(decrypted.slice(1, 33)).toEqual(alice.publicKey);
+    expect(decompress(decrypted.slice(33), decrypted[0])).toBe('Привет');
   });
+});
 
-  it('ephemeral key reveals nothing about sender', async () => {
+describe('class domain separation', () => {
+  it('MSG encrypted data cannot be decrypted as INTRO', async () => {
     const alice = await generateKeyPair();
     const bob = await generateKeyPair();
-    const eph1 = await generateKeyPair();
-    const eph2 = await generateKeyPair();
 
-    const compressed = compress('test');
-    const payload = concatU8(alice.publicKey, compressed);
+    const { payload: compressed, compMode } = compress('test');
+    const encrypted = await encrypt(compressed, alice.privateKey, bob.publicKey, alice.publicKey, bob.publicKey, CLASS_MSG, compMode);
+    // Try decryptIntro on MSG data — should fail (different classByte in KDF)
+    await expect(
+      decryptIntro(encrypted, bob.privateKey, alice.publicKey, alice.publicKey, bob.publicKey)
+    ).rejects.toThrow();
+  });
+});
 
-    const enc1 = await encrypt(payload, eph1.privateKey, bob.publicKey);
-    const enc2 = await encrypt(payload, eph2.privateKey, bob.publicKey);
+describe('comp mode in seed', () => {
+  it('comp mode survives encrypt→decrypt roundtrip for MSG', async () => {
+    const alice = await generateKeyPair();
+    const bob = await generateKeyPair();
 
-    const wire1 = serializeWire({ type: MSG_INTRODUCTION, ephemeralPublicKey: eph1.publicKey, payload: enc1 });
-    const wire2 = serializeWire({ type: MSG_INTRODUCTION, ephemeralPublicKey: eph2.publicKey, payload: enc2 });
+    for (const compMode of [0, 1, 2]) {
+      const data = new Uint8Array([0x42]);
+      const encrypted = await encrypt(data, alice.privateKey, bob.publicKey, alice.publicKey, bob.publicKey, CLASS_MSG, compMode);
+      expect(seedCompMode(encrypted[0])).toBe(compMode);
+      const decrypted = await decrypt(encrypted, bob.privateKey, alice.publicKey, alice.publicKey, bob.publicKey, CLASS_MSG);
+      expect(decrypted).toEqual(data);
+    }
+  });
 
-    // Ephemeral keys are different — observer can't link messages to same sender
-    expect(wire1.slice(1, 33)).not.toEqual(wire2.slice(1, 33));
+  it('comp mode inside INTRO plaintext survives roundtrip', async () => {
+    const alice = await generateKeyPair();
+    const bob = await generateKeyPair();
+    const eph = await generateKeyPair();
 
-    // But both decrypt to reveal the same sender
-    const dec1 = await decrypt(enc1, bob.privateKey, eph1.publicKey);
-    const dec2 = await decrypt(enc2, bob.privateKey, eph2.publicKey);
-    expect(dec1.slice(0, 32)).toEqual(alice.publicKey);
-    expect(dec2.slice(0, 32)).toEqual(alice.publicKey);
+    for (const compMode of [0, 1, 2]) {
+      const payload = concatU8(new Uint8Array([compMode]), alice.publicKey, new Uint8Array([0x42]));
+      const encrypted = await encryptIntro(payload, eph.privateKey, bob.publicKey, eph.publicKey, bob.publicKey);
+      const decrypted = await decryptIntro(encrypted, bob.privateKey, eph.publicKey, eph.publicKey, bob.publicKey);
+      expect(decrypted[0]).toBe(compMode);
+    }
+  });
+});
+
+describe('direction separation', () => {
+  it('Alice→Bob and Bob→Alice both decrypt correctly', async () => {
+    const alice = await generateKeyPair();
+    const bob = await generateKeyPair();
+
+    const { payload: compressed, compMode } = compress('same message');
+    const enc1 = await encrypt(compressed, alice.privateKey, bob.publicKey, alice.publicKey, bob.publicKey, CLASS_MSG, compMode);
+    const enc2 = await encrypt(compressed, bob.privateKey, alice.publicKey, bob.publicKey, alice.publicKey, CLASS_MSG, compMode);
+
+    expect(await decrypt(enc1, bob.privateKey, alice.publicKey, alice.publicKey, bob.publicKey, CLASS_MSG)).toEqual(compressed);
+    expect(await decrypt(enc2, alice.privateKey, bob.publicKey, bob.publicKey, alice.publicKey, CLASS_MSG)).toEqual(compressed);
+  });
+
+  it('directionByte is deterministic and antisymmetric', () => {
+    const keyA = new Uint8Array(32).fill(0x01);
+    const keyB = new Uint8Array(32).fill(0x02);
+    expect(directionByte(keyA, keyB)).toBe(0x00);
+    expect(directionByte(keyB, keyA)).toBe(0x01);
+  });
+});
+
+describe('wire frame size', () => {
+  it('MSG overhead is 14 bytes (seed:6 + tag:8)', async () => {
+    const alice = await generateKeyPair();
+    const bob = await generateKeyPair();
+
+    const plaintext = new Uint8Array([0x42]);
+    const encrypted = await encrypt(plaintext, alice.privateKey, bob.publicKey, alice.publicKey, bob.publicKey, CLASS_MSG, 0);
+    const wire = serializeMsg(encrypted);
+    // wire = seed:6 + ciphertext:1 + tag:8 = 15
+    expect(wire.length).toBe(15);
+    expect(wire.length - plaintext.length).toBe(14);
+  });
+
+  it('INTRO overhead is 40 bytes (eph:32 + tag:8, no seed)', async () => {
+    const alice = await generateKeyPair();
+    const bob = await generateKeyPair();
+    const eph = await generateKeyPair();
+
+    const plaintext = new Uint8Array([0x00, ...alice.publicKey, 0x42]); // comp:1 + key:32 + msg:1
+    const encrypted = await encryptIntro(plaintext, eph.privateKey, bob.publicKey, eph.publicKey, bob.publicKey);
+    const wire = serializeIntro(eph.publicKey, encrypted);
+    // wire = eph:32 + ciphertext:34 + tag:8 = 74, plaintext was 34, overhead = 40
+    expect(wire.length - plaintext.length).toBe(40);
   });
 });
