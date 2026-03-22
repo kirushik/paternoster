@@ -5,8 +5,6 @@ export type ThemeId = 'БОЖЕ' | 'РОССИЯ' | 'СССР' | 'БУХАЮ' | 
 export interface Theme {
   readonly id: ThemeId;
   readonly model: 0 | 16 | 64 | 1024 | 4096;
-  readonly pre: string;
-  readonly end: string;
   readonly rand: number;
   readonly tab1?: readonly string[];
   readonly tab2?: readonly string[];
@@ -23,8 +21,6 @@ const BOZHE: Theme = {
   id: 'БОЖЕ',
   model: 64,
   rand: 0.8,
-  pre: '',
-  end: '',
   tab1: [' и ', ' да ', ', ', ' но '],
   tab2: ['. Кто ', '. Не ', '? А ', ' - '],
   tab3: (
@@ -41,9 +37,7 @@ const BOZHE: Theme = {
 const ROSSIYA: Theme = {
   id: 'РОССИЯ',
   model: 16,
-  pre: '',
   rand: 0.5,
-  end: '',
   tab1: [
     '🇿 ', '🙋', '🅉 ', '🙏', '🇷🇺',
     '✊', '💯', '❤️', '👊', '💪',
@@ -60,9 +54,7 @@ const ROSSIYA: Theme = {
 const SSSR: Theme = {
   id: 'СССР',
   model: 16,
-  pre: '',
   rand: 0.2,
-  end: '',
   tab1: [
     '🔨', '🔴', '⚙️', '🏭', '📢',
     '⚒️', '🎖️', '🪖', '📕', '🛠️',
@@ -79,8 +71,6 @@ const SSSR: Theme = {
 const KITAY: Theme = {
   id: 'КИТАЙ',
   model: 4096,
-  pre: '',
-  end: '',
   base: 0x4E00,
   rand: 0.95,
   lang: 'zh-CN',
@@ -90,8 +80,6 @@ const BUKHAYU: Theme = {
   id: 'БУХАЮ',
   model: 16,
   rand: 0.5,
-  pre: '',
-  end: '',
   tab1: [
     'где ', 'блядь ', 'сука ', 'ты ', 'заебал ',
     'бухаю ', 'ответь ', 'ну ', 'пиздец ', 'деньги ',
@@ -111,8 +99,6 @@ const PATER: Theme = {
   model: 64,
   rand: 0.8,
   lang: 'la',
-  pre: '',
-  end: '',
   tab1: [' et ', ' ac ', ', ', ' sed '],
   tab2: ['. Qui ', '. Non ', '? At ', ' — '],
   tab3: (
@@ -153,8 +139,6 @@ const EMOJI: Theme = {
   model: 1024,
   rand: 0.7,
   lang: 'en',
-  pre: '',
-  end: '',
   chars: EMOJI_CHARS,
   sep: [' ', '', ' ', ''],
 } as const;
@@ -162,8 +146,6 @@ const EMOJI: Theme = {
 const HEX: Theme = {
   id: 'hex',
   model: 0,
-  pre: '',
-  end: '',
   rand: 0,
 } as const;
 

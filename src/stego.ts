@@ -47,19 +47,18 @@ function encoder16(b: Uint8Array, tab: Theme): string {
     if (Math.random() > tab.rand) iz = !iz;
     o += (iz ? t1 : t2)[(b[i] >> 4) & 0x0F];
   }
-  return tab.pre + o + tab.end;
+  return o;
 }
 
 function decoder16(s: string, tab: Theme): Uint8Array | null {
   const normalized = normalizeForDecode(s);
-  let remainder = normalized.substring(tab.pre.replace(/\uFE0F/g, '').length);
-  const normalizedEnd = tab.end.replace(/\uFE0F/g, '');
+  let remainder = normalized;
   const t1 = normalizeTab(tab.tab1)!;
   const t2 = normalizeTab(tab.tab2) ?? t1;
   const nibbles: number[] = [];
 
   let safety = 10000;
-  while (--safety && remainder.length > 0 && remainder !== normalizedEnd) {
+  while (--safety && remainder.length > 0) {
     let found = -1;
     for (let i = 0; i < 16; i++) {
       if (remainder.startsWith(t1[i])) {
@@ -100,20 +99,19 @@ function encoder64(b: Uint8Array, tab: Theme): string {
     o += (Math.random() < tab.rand ? t2 : t1)[b[i] & 0x03];
     o += t3[(b[i] >> 2) & 0x3F];
   }
-  return tab.pre + o + tab.end;
+  return o;
 }
 
 function decoder64(s: string, tab: Theme): Uint8Array | null {
   const normalized = normalizeForDecode(s);
-  let remainder = normalized.substring(tab.pre.replace(/\uFE0F/g, '').length);
-  const normalizedEnd = tab.end.replace(/\uFE0F/g, '');
+  let remainder = normalized;
   const t1 = normalizeTab(tab.tab1)!;
   const t2 = normalizeTab(tab.tab2)!;
   const t3 = normalizeTab(tab.tab3)!;
   const pairs: number[] = [];
 
   let safety = 10000;
-  while (--safety && remainder.length > 0 && remainder !== normalizedEnd) {
+  while (--safety && remainder.length > 0) {
     let lo = -1;
     for (let i = 0; i < 4; i++) {
       if (remainder.startsWith(t1[i])) {
