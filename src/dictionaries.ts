@@ -15,6 +15,8 @@ export interface Theme {
   /** model-256: 256 tokens, one per byte value. sep = cosmetic separator. */
   readonly tab256?: readonly string[];
   readonly sep?: readonly string[];
+  /** TTS language code (default: 'ru-RU') */
+  readonly lang?: string;
 }
 
 const BOZHE: Theme = {
@@ -81,6 +83,7 @@ const KITAY: Theme = {
   end: '',
   base: 0x4E00,
   rand: 0.95,
+  lang: 'zh-CN',
 } as const;
 
 const BUKHAYU: Theme = {
@@ -107,6 +110,7 @@ const PATER: Theme = {
   id: 'PATER',
   model: 64,
   rand: 0.8,
+  lang: 'la',
   pre: 'Oremus',
   end: '. Amen.',
   tab1: [' et ', ' ac ', ', ', ' sed '],
@@ -127,6 +131,7 @@ const EMOJI: Theme = {
   id: '🙂',
   model: 256,
   rand: 0.7,
+  lang: 'en',
   pre: '🔮',
   end: '🔮',
   sep: [' ', '', ' ', ''],

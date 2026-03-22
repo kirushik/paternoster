@@ -489,6 +489,10 @@ function handleAddContact(): void {
     return;
   }
 
+  if (u8eq(key, myPublicKey)) {
+    showError('Это ваш собственный ключ');
+    return;
+  }
   if (findContactByKey(key)) {
     showError('Этот контакт уже добавлен');
     return;
@@ -545,7 +549,8 @@ function handleTts(): void {
   }
   const text = outputEl.textContent;
   if (!text) return;
-  speak(text);
+  const theme = THEMES.find(t => t.id === selectedTheme);
+  speak(text, theme?.lang ?? 'ru-RU');
   ttsBtn.textContent = '🔇';
   // Reset icon when speech ends
   const check = setInterval(() => {

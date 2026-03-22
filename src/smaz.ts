@@ -99,13 +99,17 @@ export class Smaz {
     while (i < data.length) {
       const b = data[i];
       if (b === VERBATIM_1) {
+        if (i + 1 >= data.length) throw new Error('smaz: truncated VERBATIM_1');
         out.push(data[i + 1]);
         i += 2;
       } else if (b === VERBATIM_N) {
+        if (i + 1 >= data.length) throw new Error('smaz: truncated VERBATIM_N length');
         const length = data[i + 1];
+        if (i + 2 + length > data.length) throw new Error('smaz: truncated VERBATIM_N data');
         for (let k = 0; k < length; k++) out.push(data[i + 2 + k]);
         i += 2 + length;
       } else {
+        if (b >= this.codebook.length) throw new Error(`smaz: invalid codebook index ${b}`);
         const entry = this.codebook[b];
         for (let k = 0; k < entry.length; k++) out.push(entry[k]);
         i += 1;

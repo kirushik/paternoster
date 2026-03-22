@@ -20,12 +20,14 @@ if (typeof speechSynthesis !== 'undefined') {
 }
 
 /** Speak text aloud. Returns true if speaking started. */
-export function speak(text: string): boolean {
+export function speak(text: string, lang = 'ru-RU'): boolean {
   if (typeof speechSynthesis === 'undefined') return false;
   speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'ru-RU';
-  if (russianVoice) utterance.voice = russianVoice;
+  utterance.lang = lang;
+  const voices = speechSynthesis.getVoices();
+  const voice = voices.find(v => v.lang.startsWith(lang.split('-')[0])) ?? russianVoice;
+  if (voice) utterance.voice = voice;
   utterance.rate = 0.9;
   speechSynthesis.speak(utterance);
   return true;

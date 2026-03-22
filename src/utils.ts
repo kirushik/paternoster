@@ -7,10 +7,14 @@ export function u8hex(u8: Uint8Array): string {
   return o;
 }
 
-/** Convert hex string to Uint8Array */
+/** Convert hex string to Uint8Array. Throws on invalid input. */
 export function hexU8(hex: string): Uint8Array {
-  const matches = hex.match(/.{1,2}/g);
-  if (!matches) return new Uint8Array(0);
+  const clean = hex.replace(/\s/g, '');
+  if (clean.length === 0) return new Uint8Array(0);
+  if (clean.length % 2 !== 0 || !/^[0-9A-Fa-f]+$/.test(clean)) {
+    throw new Error('Invalid hex string');
+  }
+  const matches = clean.match(/.{2}/g)!;
   return new Uint8Array(matches.map(b => parseInt(b, 16)));
 }
 
