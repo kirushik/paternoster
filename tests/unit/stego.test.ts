@@ -61,8 +61,7 @@ describe('stego roundtrip per theme', () => {
 describe('stego auto-detection', () => {
   it('returns null for plain Russian text', () => {
     const result = stegoDecode('Привет, как дела?');
-    // Should not match any theme (except possibly hex, which would fail to decode meaningfully)
-    // If hex matches, that's acceptable — it's the fallback
+    expect(result).toBeNull();
   });
 
   it('does not confuse themes with different prefixes', () => {
@@ -107,21 +106,26 @@ describe('stego FE0F robustness', () => {
 });
 
 describe('stego handles edge cases', () => {
-  it('empty input encodes and decodes', () => {
-    // Empty array might produce just prefix+suffix
-    for (const themeId of ['БОЖЕ', 'hex'] as ThemeId[]) {
-      const encoded = stegoEncode(new Uint8Array([]), themeId);
-      // For hex, empty input = empty string, stegoDecode might return null
-      // For others, prefix+suffix only
+  it('empty input encodes to prefix+suffix or empty', () => {
+    const bozhe = stegoEncode(new Uint8Array([]), 'БОЖЕ');
+    expect(bozhe.length).toBeGreaterThan(0); // prefix + suffix with no data tokens
+    // Decoding prefix+suffix alone returns null (no byte data between markers)
+    // or an empty-bytes result depending on decoder — either is acceptable
+    const decoded = stegoDecode(bozhe);
+    if (decoded !== null) {
+      expect(decoded.bytes).toEqual(new Uint8Array([]));
     }
+
+    const hex = stegoEncode(new Uint8Array([]), 'hex');
+    expect(hex).toBe('');
   });
 
   it('truncated encoded text returns null, not crash', () => {
     const encoded = stegoEncode(randomBytes(20), 'БОЖЕ');
     // Take only first half
-    const truncated = encoded.substring(0, encoded.length / 2);
+    const truncated = encoded.substring(0, Math.floor(encoded.length / 2));
     const decoded = stegoDecode(truncated);
-    // Should return null or partial data, not throw
-    // (БОЖЕ prefix will match, but decoding will fail partway through)
+    // Should return null because the truncated text won't have complete tokens
+    expect(decoded).toBeNull();
   });
 });

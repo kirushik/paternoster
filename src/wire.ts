@@ -44,7 +44,7 @@ export function deserializeWire(data: Uint8Array): WireFrame | null {
   const type = data[0];
 
   if (type === CONTACT_TOKEN) {
-    if (data.length < 33) return null;
+    if (data.length !== 33) return null;
     return { type, publicKey: data.slice(1, 33) };
   }
 

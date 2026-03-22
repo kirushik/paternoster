@@ -6,7 +6,7 @@ Paternoster is a client-side steganographic encrypted messaging tool. The entire
 
 The threat model is platform surveillance — adversaries scanning communications for encrypted content. A server would be a single point of surveillance, seizure, or compromise. A self-contained HTML file can be shared person-to-person (Telegram, USB, email) and opened offline from disk. No server means no metadata logs, no traffic analysis surface, no infrastructure to maintain or trust.
 
-The "download" button lets users save a clean copy to share further. The file IS the distribution mechanism.
+The "download" button lets users save a clean copy to share further. The file IS the distribution mechanism. The download handler fetches the actual served page via `fetch(location.href)` to capture the complete single-file build (with inlined JS/CSS), falling back to a DOM snapshot only when running from `file://` protocol.
 
 ## Why No Framework
 
@@ -25,8 +25,9 @@ main.ts              — Init, UI rendering, event wiring, state machine (proces
 ├── wire.ts          — Binary message framing (type byte + payload)
 ├── contacts.ts      — Contact CRUD (localStorage persistence)
 │   └── storage.ts   — localStorage key namespace
+├── identity.ts      — Identity export/import (PBKDF2 + AES-GCM passphrase protection)
 ├── tts.ts           — SpeechSynthesis wrapper (decoy feature)
-└── utils.ts         — Hex, base64url, concat, equality helpers
+└── utils.ts         — Hex, base64url, concat, equality, contact verification codes
 ```
 
 ## Data Flow

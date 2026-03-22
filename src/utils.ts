@@ -47,6 +47,12 @@ export function concatU8(...arrays: Uint8Array[]): Uint8Array {
   return result;
 }
 
+/** Compute a short verification code from a public key (SHA-256, first 8 bytes as grouped hex). */
+export async function contactCode(publicKey: Uint8Array): Promise<string> {
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', publicKey as BufferSource));
+  return u8hex(hash.slice(0, 8)).match(/.{4}/g)!.join(' ');
+}
+
 /** Compare two Uint8Arrays for equality */
 export function u8eq(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;

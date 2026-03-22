@@ -50,3 +50,4 @@ From benchmarks on Russian blog comments (vs original UTF-8):
 - Smaz's `decompress()` throws on malformed input (truncated escapes, invalid indices). Don't catch these silently — they indicate data corruption.
 - The squash escape byte is `0x98` — the only unmapped byte in CP1251. If CP1251 ever gets an update mapping 0x98 to something, squash breaks. (This won't happen.)
 - Compression can *expand* short messages. The dispatch always falls back to literal (0x3F) when that happens.
+- `decompress()` throws on unknown flags with a user-facing Russian error message suggesting the message may be from a newer version. Don't silence this — it's better than returning garbage from an unsupported compression method.

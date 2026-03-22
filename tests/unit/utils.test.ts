@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { u8hex, hexU8, u8toBase64url, base64urlToU8, concatU8, u8eq } from '../../src/utils';
+import { u8hex, hexU8, u8toBase64url, base64urlToU8, concatU8, u8eq, contactCode } from '../../src/utils';
 
 describe('u8hex', () => {
   it('encodes empty array', () => {
@@ -111,5 +111,28 @@ describe('u8eq', () => {
   });
   it('both empty', () => {
     expect(u8eq(new Uint8Array([]), new Uint8Array([]))).toBe(true);
+  });
+});
+
+describe('contactCode', () => {
+  it('returns 4 groups of 4 hex chars', async () => {
+    const key = new Uint8Array(32).fill(0xAB);
+    const code = await contactCode(key);
+    expect(code).toMatch(/^[0-9A-F]{4} [0-9A-F]{4} [0-9A-F]{4} [0-9A-F]{4}$/);
+  });
+
+  it('is deterministic', async () => {
+    const key = new Uint8Array(32).fill(0x42);
+    const code1 = await contactCode(key);
+    const code2 = await contactCode(key);
+    expect(code1).toBe(code2);
+  });
+
+  it('different keys produce different codes', async () => {
+    const key1 = new Uint8Array(32).fill(0x01);
+    const key2 = new Uint8Array(32).fill(0x02);
+    const code1 = await contactCode(key1);
+    const code2 = await contactCode(key2);
+    expect(code1).not.toBe(code2);
   });
 });

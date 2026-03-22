@@ -75,4 +75,10 @@ describe('wire deserialization rejects invalid input', () => {
     // Type + 10 bytes (need at least 32 key + 12 IV + 1 ciphertext)
     expect(deserializeWire(new Uint8Array(11).fill(0x11))).toBeNull();
   });
+
+  it('returns null for CONTACT_TOKEN with trailing bytes', () => {
+    const data = new Uint8Array(34);
+    data[0] = 0x20;
+    expect(deserializeWire(data)).toBeNull();
+  });
 });

@@ -11,7 +11,7 @@ export async function checkX25519Support(): Promise<void> {
   } catch {
     throw new Error(
       'Ваш браузер не поддерживает X25519.\n' +
-      'Обновите до Chrome 113+, Firefox 128+ или Safari 17.4+'
+      'Используйте современную версию Chrome, Firefox или Safari.'
     );
   }
 }

@@ -23,9 +23,11 @@ The threat model includes device inspection. Stored message history is evidence.
 ### Sharing your contact (three formats)
 
 Tap "Я" in the contact strip. The app shows:
-1. **Invite link** — `https://domain/#base64url_token`. Clicking opens the app and auto-imports the contact. The hash is cleared from URL after import.
-2. **Compact token** — 44-char base64url string. Paste-friendly for any channel.
-3. **Themed text** — the contact token encoded as a prayer/slogan/etc. Steganographic sharing.
+1. **Verification code** — `XXXX XXXX XXXX XXXX` derived from your public key. Share this out-of-band so contacts can verify your identity.
+2. **Invite link** — `https://domain/#base64url_token`. Clicking opens the app and auto-imports the contact. The hash is cleared from URL after import.
+3. **Compact token** — 44-char base64url string. Paste-friendly for any channel.
+4. **Themed text** — the contact token encoded as a prayer/slogan/etc. Steganographic sharing.
+5. **Identity backup** — "Сохранить личность" exports the keypair as a passphrase-protected string. "Восстановить личность" imports it back.
 
 ### Receiving a contact
 

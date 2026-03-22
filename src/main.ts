@@ -5,7 +5,7 @@ import { stegoEncode, stegoDecode } from './stego';
 import { serializeWire, deserializeWire, MSG_NO_SENDER, MSG_WITH_SENDER, CONTACT_TOKEN } from './wire';
 import { type ThemeId, THEMES } from './dictionaries';
 import { STORAGE, storageGet, storageSet } from './storage';
-import { u8hex, hexU8, u8eq, u8toBase64url, base64urlToU8 } from './utils';
+import { u8hex, hexU8, u8eq, u8toBase64url, base64urlToU8, contactCode } from './utils';
 import {
   type Contact,
   loadContacts,
@@ -18,6 +18,7 @@ import {
   setSelectedContactId,
 } from './contacts';
 import { speak, stopSpeaking, isSpeaking } from './tts';
+import { exportIdentity, importIdentity } from './identity';
 
 // ── State ───────────────────────────────────────────────
 
@@ -28,6 +29,8 @@ let selectedContactId: string | null = null;
 let selectedTheme: ThemeId = 'БОЖЕ';
 let isDecodeMode = false;
 let lastDecodedSender: string | null = null;
+let copyableText = ''; // What the main copy button should copy
+const contactCodes = new Map<string, string>(); // publicKeyHex → "XXXX XXXX XXXX XXXX"
 
 // ── DOM refs ────────────────────────────────────────────
 
@@ -59,6 +62,9 @@ async function init(): Promise<void> {
 
   render();
   wireEvents();
+
+  // Pre-compute verification codes (async, updates UI when ready)
+  refreshContactCodes();
 
   // Check URL hash for invite token
   checkHashInvite();
@@ -102,6 +108,23 @@ async function loadOrCreateIdentity(): Promise<void> {
   }
 }
 
+/** Pre-compute verification codes for own key and all contacts, then update contact pill titles. */
+async function refreshContactCodes(): Promise<void> {
+  const keys = [myPublicKey, ...contacts.map(c => getContactKey(c))];
+  await Promise.all(keys.map(async (key) => {
+    const hex = u8hex(key);
+    if (!contactCodes.has(hex)) {
+      contactCodes.set(hex, await contactCode(key));
+    }
+  }));
+  // Update contact pill titles with codes
+  for (const c of contacts) {
+    const btn = contactsEl.querySelector(`[data-id="${c.id}"]`) as HTMLElement | null;
+    const code = contactCodes.get(c.publicKeyHex);
+    if (btn && code) btn.title = code;
+  }
+}
+
 // ── Render ──────────────────────────────────────────────
 
 function render(): void {
@@ -138,22 +161,29 @@ function render(): void {
 }
 
 function renderContacts(): void {
-  const parts: string[] = [];
+  contactsEl.textContent = '';
 
   // "Я" (self) — shows own contact token when clicked
-  parts.push(
-    `<button class="contact-pill${selectedContactId === null ? ' selected' : ''}" data-id="self">Я</button>`
-  );
+  const selfBtn = document.createElement('button');
+  selfBtn.className = 'contact-pill' + (selectedContactId === null ? ' selected' : '');
+  selfBtn.dataset.id = 'self';
+  selfBtn.textContent = 'Я';
+  contactsEl.appendChild(selfBtn);
 
   for (const c of contacts) {
-    const sel = c.id === selectedContactId ? ' selected' : '';
-    parts.push(
-      `<button class="contact-pill${sel}" data-id="${c.id}" title="${u8hex(getContactKey(c)).slice(0, 16)}...">${escHtml(c.name)}</button>`
-    );
+    const btn = document.createElement('button');
+    btn.className = 'contact-pill' + (c.id === selectedContactId ? ' selected' : '');
+    btn.dataset.id = c.id;
+    btn.title = contactCodes.get(c.publicKeyHex) || u8hex(getContactKey(c)).slice(0, 16) + '...';
+    btn.textContent = c.name;
+    contactsEl.appendChild(btn);
   }
 
-  parts.push(`<button class="contact-pill contact-add" data-id="add">+</button>`);
-  contactsEl.innerHTML = parts.join('');
+  const addBtn = document.createElement('button');
+  addBtn.className = 'contact-pill contact-add';
+  addBtn.dataset.id = 'add';
+  addBtn.textContent = '+';
+  contactsEl.appendChild(addBtn);
 }
 
 function renderThemeSelect(): void {
@@ -176,10 +206,6 @@ function updateStatus(extra?: string): void {
 function showError(msg: string): void {
   errorEl.textContent = msg;
   setTimeout(() => { errorEl.textContent = ''; }, 5000);
-}
-
-function escHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ── Events ──────────────────────────────────────────────
@@ -253,13 +279,14 @@ async function processInput(): Promise<void> {
   const text = inputEl.value.trim();
   if (!text) {
     outputEl.textContent = '';
+    copyableText = '';
     isDecodeMode = false;
     lastDecodedSender = null;
     updateStatus();
     return;
   }
 
-  // Try base64url invite token first (compact format: 45 chars)
+  // Try base64url invite token first (compact format: 44 chars)
   const inviteContact = tryParseInviteToken(text);
   if (inviteContact) {
     handleContactToken(inviteContact);
@@ -298,6 +325,7 @@ async function handleEncode(plaintext: string): Promise<void> {
 
     const stegoText = stegoEncode(wireFrame, selectedTheme);
     outputEl.textContent = stegoText;
+    copyableText = stegoText;
     updateStatus();
   } catch (e) {
     showError(`Ошибка шифрования: ${(e as Error).message}`);
@@ -349,6 +377,7 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
       const decrypted = await decrypt(frame.payload, myPrivateKey, key);
       const plaintext = decompress(decrypted);
       outputEl.textContent = plaintext;
+      copyableText = plaintext;
       lastDecodedSender = name;
 
       // If sender key was included and sender is unknown — offer to save
@@ -390,6 +419,7 @@ function handleContactToken(publicKey: Uint8Array): void {
   selectedContactId = contacts[contacts.length - 1].id;
   setSelectedContactId(selectedContactId);
   renderContacts();
+  refreshContactCodes();
   outputEl.textContent = `Контакт "${name}" добавлен`;
   inputEl.value = '';
   updateStatus();
@@ -434,35 +464,84 @@ function showOwnContactToken(): void {
   const tokenBytes = serializeWire({ type: CONTACT_TOKEN, publicKey: myPublicKey });
   const stegoText = stegoEncode(tokenBytes, selectedTheme);
 
-  outputEl.innerHTML =
-    `<div class="invite-section">`
-    + `<div class="invite-label">Ссылка-приглашение:</div>`
-    + `<a href="${escHtml(inviteLink)}" class="invite-link">${escHtml(inviteLink)}</a>`
-    + `<button class="action-btn invite-copy-btn" data-copy="${escHtml(inviteLink)}">📋 Скопировать ссылку</button>`
-    + `<div class="invite-label">Или код для вставки:</div>`
-    + `<code class="invite-token">${escHtml(inviteToken)}</code>`
-    + `<div class="invite-label">Или в виде «${escHtml(selectedTheme)}»:</div>`
-    + `<div class="invite-stego">${escHtml(stegoText)}</div>`
-    + `</div>`;
+  outputEl.textContent = '';
+  const section = document.createElement('div');
+  section.className = 'invite-section';
 
-  // Wire up the copy-link button
-  outputEl.querySelector('.invite-copy-btn')?.addEventListener('click', async (e) => {
-    const link = (e.target as HTMLElement).dataset.copy!;
+  const addLabel = (text: string) => {
+    const div = document.createElement('div');
+    div.className = 'invite-label';
+    div.textContent = text;
+    section.appendChild(div);
+  };
+
+  const ownCode = contactCodes.get(u8hex(myPublicKey));
+  if (ownCode) {
+    const codeDiv = document.createElement('div');
+    codeDiv.className = 'invite-label';
+    codeDiv.textContent = `Ваш код: ${ownCode}`;
+    section.appendChild(codeDiv);
+  }
+
+  addLabel('Ссылка-приглашение:');
+
+  const linkEl = document.createElement('a');
+  linkEl.href = inviteLink;
+  linkEl.className = 'invite-link';
+  linkEl.textContent = inviteLink;
+  section.appendChild(linkEl);
+
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'action-btn invite-copy-btn';
+  copyBtn.textContent = '📋 Скопировать ссылку';
+  copyBtn.addEventListener('click', async () => {
     try {
-      await navigator.clipboard.writeText(link);
+      await navigator.clipboard.writeText(inviteLink);
     } catch {
       const ta = document.createElement('textarea');
-      ta.value = link;
+      ta.value = inviteLink;
       ta.style.cssText = 'position:fixed;opacity:0';
       document.body.appendChild(ta);
       ta.select();
       document.execCommand('copy');
       document.body.removeChild(ta);
     }
-    const btn = e.target as HTMLButtonElement;
-    btn.textContent = '✓ Скопировано';
-    setTimeout(() => { btn.textContent = '📋 Скопировать ссылку'; }, 1500);
+    copyBtn.textContent = '✓ Скопировано';
+    setTimeout(() => { copyBtn.textContent = '📋 Скопировать ссылку'; }, 1500);
   });
+  section.appendChild(copyBtn);
+
+  addLabel('Или код для вставки:');
+
+  const codeEl = document.createElement('code');
+  codeEl.className = 'invite-token';
+  codeEl.textContent = inviteToken;
+  section.appendChild(codeEl);
+
+  addLabel(`Или в виде «${selectedTheme}»:`);
+
+  const stegoDiv = document.createElement('div');
+  stegoDiv.className = 'invite-stego';
+  stegoDiv.textContent = stegoText;
+  section.appendChild(stegoDiv);
+
+  // Identity export/import buttons
+  addLabel('Личность:');
+
+  const exportBtn = document.createElement('button');
+  exportBtn.className = 'action-btn';
+  exportBtn.textContent = 'Сохранить личность';
+  exportBtn.addEventListener('click', handleExportIdentity);
+  section.appendChild(exportBtn);
+
+  const importBtn = document.createElement('button');
+  importBtn.className = 'action-btn';
+  importBtn.textContent = 'Восстановить личность';
+  importBtn.addEventListener('click', handleImportIdentity);
+  section.appendChild(importBtn);
+
+  outputEl.appendChild(section);
+  copyableText = inviteLink;
 
   inputEl.value = '';
   updateStatus('мой контакт');
@@ -504,13 +583,52 @@ function handleAddContact(): void {
   selectedContactId = contact.id;
   setSelectedContactId(contact.id);
   renderContacts();
+  refreshContactCodes();
   processInput();
+}
+
+async function handleExportIdentity(): Promise<void> {
+  const passphrase = prompt('Придумайте пароль для резервной копии:');
+  if (!passphrase) return;
+  const confirm = prompt('Повторите пароль:');
+  if (passphrase !== confirm) {
+    showError('Пароли не совпадают');
+    return;
+  }
+  try {
+    const blob = await exportIdentity(myPrivateKey, myPublicKey, passphrase);
+    outputEl.textContent = blob;
+    copyableText = blob;
+    updateStatus('скопируйте и сохраните');
+  } catch {
+    showError('Не удалось создать резервную копию');
+  }
+}
+
+async function handleImportIdentity(): Promise<void> {
+  const blob = prompt('Вставьте резервную копию:');
+  if (!blob) return;
+  const passphrase = prompt('Введите пароль:');
+  if (!passphrase) return;
+  try {
+    const { privateKey, publicKey } = await importIdentity(blob.trim(), passphrase);
+    myPrivateKey = privateKey;
+    myPublicKey = publicKey;
+    storageSet(STORAGE.privateKey, u8hex(myPrivateKey));
+    storageSet(STORAGE.publicKey, u8hex(myPublicKey));
+    contactCodes.clear();
+    refreshContactCodes();
+    outputEl.textContent = 'Личность восстановлена';
+    updateStatus();
+  } catch (e) {
+    showError((e as Error).message);
+  }
 }
 
 // ── Actions ─────────────────────────────────────────────
 
 async function handleCopy(): Promise<void> {
-  const text = outputEl.textContent;
+  const text = copyableText || outputEl.textContent || '';
   if (!text) return;
 
   try {
@@ -561,7 +679,7 @@ function handleTts(): void {
   }, 300);
 }
 
-function handleDownload(): void {
+async function handleDownload(): Promise<void> {
   // Save input/output state, clear for clean download
   const savedInput = inputEl.value;
   const savedOutput = outputEl.textContent;
@@ -570,7 +688,15 @@ function handleDownload(): void {
   statusEl.textContent = '';
   errorEl.textContent = '';
 
-  const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+  let html: string;
+  try {
+    // Fetch the actual served file (the single-file build from vite-plugin-singlefile)
+    const response = await fetch(location.href);
+    html = await response.text();
+  } catch {
+    // file:// protocol — fetch fails, but user already has the file locally
+    html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+  }
 
   // Restore state
   inputEl.value = savedInput;

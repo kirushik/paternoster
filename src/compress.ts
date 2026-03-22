@@ -54,6 +54,9 @@ export function decompress(data: Uint8Array): string {
     return squashDecode(decompressed);
   }
 
-  // Unknown flags — try literal as fallback
-  return new TextDecoder().decode(payload);
+  // Unknown flags — message may use a compression method from a newer version
+  throw new Error(
+    `Неизвестный формат сжатия (0x${flags.toString(16).padStart(2, '0')}). ` +
+    'Возможно, сообщение создано более новой версией.'
+  );
 }

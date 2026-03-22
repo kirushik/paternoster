@@ -107,3 +107,52 @@ describe('contacts edge cases', () => {
     expect(contacts.map(c => c.name).sort()).toEqual(['B', 'C']);
   });
 });
+
+describe('contact schema validation', () => {
+  it('filters out non-object entries', () => {
+    storage.set('paternoster_contacts', '[1, "string", null, true]');
+    expect(loadContacts()).toEqual([]);
+  });
+
+  it('filters out entries missing required fields', () => {
+    storage.set('paternoster_contacts', JSON.stringify([
+      { id: 'abc' },
+      { id: 'def', name: 'No Key' },
+    ]));
+    expect(loadContacts()).toEqual([]);
+  });
+
+  it('filters out entries with invalid publicKeyHex', () => {
+    storage.set('paternoster_contacts', JSON.stringify([
+      { id: 'abc', name: 'Short Hex', publicKeyHex: 'ABCD', addedAt: 0, firstMessageSent: false },
+      { id: 'def', name: 'Lowercase', publicKeyHex: 'ab'.repeat(32), addedAt: 0, firstMessageSent: false },
+      { id: 'ghi', name: 'Non-hex', publicKeyHex: 'ZZ'.repeat(32), addedAt: 0, firstMessageSent: false },
+    ]));
+    expect(loadContacts()).toEqual([]);
+  });
+
+  it('filters out entries with wrong field types', () => {
+    storage.set('paternoster_contacts', JSON.stringify([
+      { id: 123, name: 'Bad Id', publicKeyHex: 'AB'.repeat(32), addedAt: 0, firstMessageSent: false },
+      { id: 'abc', name: 'Bad Flag', publicKeyHex: 'AB'.repeat(32), addedAt: 0, firstMessageSent: 'yes' },
+    ]));
+    expect(loadContacts()).toEqual([]);
+  });
+
+  it('keeps valid entries alongside invalid ones', () => {
+    const valid = { id: 'abc123def456abcd', name: 'Alice', publicKeyHex: 'AB'.repeat(32), addedAt: 1000, firstMessageSent: false };
+    storage.set('paternoster_contacts', JSON.stringify([
+      { id: 'bad' },
+      valid,
+      null,
+    ]));
+    const loaded = loadContacts();
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0].name).toBe('Alice');
+  });
+
+  it('returns empty for non-array JSON', () => {
+    storage.set('paternoster_contacts', '{"not": "array"}');
+    expect(loadContacts()).toEqual([]);
+  });
+});

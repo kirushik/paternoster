@@ -48,9 +48,8 @@ describe('decompress edge cases', () => {
     expect(decompress(new Uint8Array([]))).toBe('');
   });
 
-  it('handles unknown flag as literal', () => {
+  it('throws on unknown flag', () => {
     const data = new Uint8Array([0x42, 0x48, 0x69]); // unknown flag 0x42, then "Hi"
-    const result = decompress(data);
-    expect(result).toBe('Hi');
+    expect(() => decompress(data)).toThrow('Неизвестный формат сжатия (0x42)');
   });
 });

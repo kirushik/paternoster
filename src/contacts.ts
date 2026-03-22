@@ -20,12 +20,28 @@ function randomId(): string {
     .join('');
 }
 
-/** Load all contacts from localStorage. */
+/** Validate that a parsed object has the expected Contact shape. */
+function isValidContact(c: unknown): c is Contact {
+  if (typeof c !== 'object' || c === null) return false;
+  const obj = c as Record<string, unknown>;
+  return (
+    typeof obj.id === 'string' &&
+    typeof obj.name === 'string' &&
+    typeof obj.publicKeyHex === 'string' &&
+    typeof obj.addedAt === 'number' &&
+    typeof obj.firstMessageSent === 'boolean' &&
+    /^[0-9A-F]{64}$/.test(obj.publicKeyHex)
+  );
+}
+
+/** Load all contacts from localStorage. Filters out malformed entries. */
 export function loadContacts(): Contact[] {
   const raw = storageGet(STORAGE.contacts);
   if (!raw) return [];
   try {
-    return JSON.parse(raw) as Contact[];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isValidContact);
   } catch {
     return [];
   }

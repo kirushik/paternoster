@@ -16,7 +16,11 @@ X25519 (Curve25519 ECDH) provides 128-bit security with 32-byte keys — the sho
 
 **Platform surveillance.** Messages traverse monitored platforms (Telegram, VK, email). The adversary scans for encrypted content patterns. Encryption prevents reading; steganographic encoding prevents detection. The crypto doesn't protect against device seizure (keys are in localStorage) or a compromised browser.
 
-**Not in scope:** forward secrecy (static key pairs), sender authentication (we brute-force which contact's key decrypts), key verification ceremony (no safety numbers yet).
+**Not in scope:** forward secrecy (static key pairs), sender authentication (we brute-force which contact's key decrypts).
+
+**Contact verification:** Each contact's public key has a short verification code (SHA-256 of public key, first 8 bytes, displayed as `XXXX XXXX XXXX XXXX`). Users can compare codes out-of-band to verify they're talking to the right person. This is shown on hover over contact pills and in the "Я" view.
+
+**Identity backup:** Users can export their keypair as a passphrase-protected blob (PBKDF2-SHA256 100k iterations → AES-GCM). Import restores identity on another device/browser. See `src/identity.ts`.
 
 ## Wire Format
 
@@ -28,7 +32,7 @@ Two layers: outer (message routing) and inner (compression).
 |---|---|---|---|
 | Encrypted (no sender) | `0x10` | `[0x10][IV:12][ciphertext]` | Messages to known contacts |
 | Encrypted (with sender) | `0x11` | `[0x11][sender_pubkey:32][IV:12][ciphertext]` | First message to a contact (auto-introduces sender) |
-| Contact token | `0x20` | `[0x20][pubkey:32]` | Contact sharing (not encrypted) |
+| Contact token | `0x20` | `[0x20][pubkey:32]` | Contact sharing (not encrypted, exactly 33 bytes) |
 
 **Inner framing** (the plaintext before encryption) — per [compression guide](../compression/results/guide.md):
 
