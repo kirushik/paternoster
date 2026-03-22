@@ -23,8 +23,8 @@ const BOZHE: Theme = {
   id: 'БОЖЕ',
   model: 64,
   rand: 0.8,
-  pre: 'Воистину',
-  end: '. Аминь.',
+  pre: '',
+  end: '',
   tab1: [' и ', ' да ', ', ', ' но '],
   tab2: ['. Кто ', '. Не ', '? А ', ' - '],
   tab3: (
@@ -41,9 +41,9 @@ const BOZHE: Theme = {
 const ROSSIYA: Theme = {
   id: 'РОССИЯ',
   model: 16,
-  pre: 'ZOV ',
+  pre: '',
   rand: 0.5,
-  end: '!',
+  end: '',
   tab1: [
     '🇿 ', '🙋', '🅉 ', '🙏', '🇷🇺',
     '✊', '💯', '❤️', '👊', '💪',
@@ -60,9 +60,9 @@ const ROSSIYA: Theme = {
 const SSSR: Theme = {
   id: 'СССР',
   model: 16,
-  pre: 'ВКПБ ',
+  pre: '',
   rand: 0.2,
-  end: '!',
+  end: '',
   tab1: [
     '✊', '🔴', '🙋', '🏭', '👏',
     '🔥', '💯', '🚀', '❤️', '🛠️',
@@ -90,8 +90,8 @@ const BUKHAYU: Theme = {
   id: 'БУХАЮ',
   model: 16,
   rand: 0.5,
-  pre: 'Короче ',
-  end: '!!!!!!',
+  pre: '',
+  end: '',
   tab1: [
     'где ', 'блядь ', 'сука ', 'ты ', 'заебал ',
     'бухаю ', 'ответь ', 'ну ', 'пиздец ', 'деньги ',
@@ -111,8 +111,8 @@ const PATER: Theme = {
   model: 64,
   rand: 0.8,
   lang: 'la',
-  pre: 'Oremus',
-  end: '. Amen.',
+  pre: '',
+  end: '',
   tab1: [' et ', ' ac ', ', ', ' sed '],
   tab2: ['. Qui ', '. Non ', '? At ', ' — '],
   tab3: (
@@ -132,8 +132,8 @@ const EMOJI: Theme = {
   model: 256,
   rand: 0.7,
   lang: 'en',
-  pre: '🔮',
-  end: '🔮',
+  pre: '',
+  end: '',
   sep: [' ', '', ' ', ''],
   tab256: [
     '😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩',
@@ -164,7 +164,7 @@ const HEX: Theme = {
 } as const;
 
 /** All themes in detection priority order (hex MUST be last). */
-export const THEMES: readonly Theme[] = [BOZHE, ROSSIYA, SSSR, KITAY, BUKHAYU, PATER, EMOJI, HEX] as const;
+export const THEMES: readonly Theme[] = [KITAY, PATER, BOZHE, BUKHAYU, ROSSIYA, SSSR, EMOJI, HEX] as const;
 
 /** Theme lookup by ID. */
 export const THEME_MAP: ReadonlyMap<ThemeId, Theme> = new Map(THEMES.map(t => [t.id, t]));

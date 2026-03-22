@@ -18,7 +18,7 @@ function makeMsg(overrides: Partial<ChatMessage> = {}): ChatMessage {
     id: 'test-id',
     direction: 'sent',
     plaintext: 'Привет',
-    encoded: 'Воистину глаголю вам...',
+    encoded: ' и раб да ад',
     contactId: 'contact-1',
     timestamp: Date.now(),
     theme: 'БОЖЕ',

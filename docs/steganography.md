@@ -30,8 +30,8 @@ Models 16 and 64 randomly switch between `tab1` and `tab2` for the same nibble/b
 2. Create the word lists: tab1/tab2 must have exactly 16 entries for model 16; 4 entries for model 64; tab3 must have 64 entries for model 64; tab256 must have 256 entries for model 256.
 3. **All tokens within a table must be unique after FE0F normalization.** The dictionary tests enforce this.
 4. **Tokens must be prefix-free within their lookup table.** No token can be a prefix of another token in the same table. The greedy decoder depends on this.
-5. Choose a unique prefix (`pre`) that doesn't collide with other themes' prefixes. Auto-detection matches on prefix.
-6. Add to `THEMES` array in `dictionaries.ts` — **before `hex`** (hex must be last, it matches anything).
+5. Ensure your theme's token vocabulary doesn't overlap with existing themes. Auto-detection tries each decoder in order; the first one that successfully parses the input wins.
+6. Add to `THEMES` array in `dictionaries.ts` — **before `hex`** (hex must be last, it matches anything). Place more distinctive themes (unique character sets) earlier in the array.
 7. Add the theme ID to the `ThemeId` union type.
 8. Add a `lang` field if TTS should use a non-Russian voice.
 9. Run `npm test` — the stego roundtrip tests and dictionary validation tests will verify correctness.
@@ -53,7 +53,7 @@ Output must survive copy-paste across Telegram, VK, WhatsApp, Instagram, Twitter
 
 ## Gotchas
 
-- Auto-detection iterates `THEMES` array in order. First theme whose prefix matches wins. If two themes have overlapping prefixes, the one listed first takes priority.
-- Model 0 (hex) has no prefix check — it tries to decode any text as hex. That's why it must be last in the array.
+- Auto-detection iterates `THEMES` array in order, trying each decoder. First theme whose decoder successfully parses the input wins. Themes are ordered by token-set distinctiveness (most unique first) to minimize false-positive attempts.
+- Model 0 (hex) tries to decode any text as hex. That's why it must be last in the array.
 - Encoder output is non-deterministic (random tab switching, random separators). The decoder accepts output from any randomization. You can't compare two encodings of the same data for equality.
 - Model 256's greedy decoder tries longest token first. If tokens aren't prefix-free, it may match the wrong one.

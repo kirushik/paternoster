@@ -262,20 +262,14 @@ export function stegoEncode(bytes: Uint8Array, themeId: ThemeId): string {
 
 /** Auto-detect theme and decode steganographic text to bytes. */
 export function stegoDecode(text: string): DecodeResult | null {
-  const trimmed = text.trim();
   for (const theme of THEMES) {
-    // Check if this theme could match
+    // Quick rejection heuristics (not prefix-based — just character-range checks)
     if (theme.model === 1) {
-      const firstChar = trimmed.codePointAt(0);
+      const firstChar = text.codePointAt(0);
       if (firstChar === undefined || firstChar < theme.base! || firstChar >= theme.base! + 256) continue;
-    } else if (theme.model === 0) {
-      // hex is last resort — only try if nothing else matched
-      // (this loop tries it last because THEMES has hex at the end)
-    } else if (theme.pre && !trimmed.startsWith(theme.pre)) {
-      continue;
     }
 
-    const bytes = DECODERS[theme.model](trimmed, theme);
+    const bytes = DECODERS[theme.model](text, theme);
     if (bytes && bytes.length > 0) {
       return { bytes, theme: theme.id };
     }

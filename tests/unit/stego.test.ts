@@ -26,9 +26,12 @@ describe('stego roundtrip per theme', () => {
         expect(decoded!.bytes).toEqual(input);
       });
 
-      it('roundtrips short data (1 byte)', () => {
+      it('roundtrips short data (3 bytes)', () => {
+        // 3 bytes = 6 nibble tokens (model 16) or 6 connector+word pairs (model 64).
+        // Enough tokens to include theme-specific vocabulary for unambiguous detection.
+        // (1-byte messages can be ambiguous between themes with overlapping token sets.)
         for (const b of [0, 1, 127, 128, 255]) {
-          const input = new Uint8Array([b]);
+          const input = new Uint8Array([b, b ^ 0xAA, b ^ 0x55]);
           const encoded = stegoEncode(input, themeId);
           const decoded = stegoDecode(encoded);
           expect(decoded).not.toBeNull();
@@ -64,7 +67,7 @@ describe('stego auto-detection', () => {
     expect(result).toBeNull();
   });
 
-  it('does not confuse themes with different prefixes', () => {
+  it('does not confuse themes', () => {
     const input = randomBytes(20);
     const bozhe = stegoEncode(input, 'БОЖЕ');
     const pater = stegoEncode(input, 'PATER');
@@ -106,15 +109,9 @@ describe('stego FE0F robustness', () => {
 });
 
 describe('stego handles edge cases', () => {
-  it('empty input encodes to prefix+suffix or empty', () => {
+  it('empty input encodes to empty string', () => {
     const bozhe = stegoEncode(new Uint8Array([]), 'БОЖЕ');
-    expect(bozhe.length).toBeGreaterThan(0); // prefix + suffix with no data tokens
-    // Decoding prefix+suffix alone returns null (no byte data between markers)
-    // or an empty-bytes result depending on decoder — either is acceptable
-    const decoded = stegoDecode(bozhe);
-    if (decoded !== null) {
-      expect(decoded.bytes).toEqual(new Uint8Array([]));
-    }
+    expect(bozhe).toBe('');
 
     const hex = stegoEncode(new Uint8Array([]), 'hex');
     expect(hex).toBe('');

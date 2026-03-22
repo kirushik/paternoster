@@ -150,14 +150,3 @@ describe('theme ordering', () => {
   });
 });
 
-describe('theme prefixes are distinct', () => {
-  it('no prefix-based theme has prefix that is prefix of another', () => {
-    const prefixed = THEMES.filter(t => t.pre && t.model > 1);
-    for (let i = 0; i < prefixed.length; i++) {
-      for (let j = 0; j < prefixed.length; j++) {
-        if (i === j) continue;
-        expect(prefixed[j].pre.startsWith(prefixed[i].pre)).toBe(false);
-      }
-    }
-  });
-});
