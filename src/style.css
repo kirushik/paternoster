@@ -269,6 +269,7 @@ textarea#input::placeholder {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  user-select: text;
 }
 .invite-label {
   font-size: 0.75rem;

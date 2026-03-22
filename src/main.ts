@@ -31,6 +31,7 @@ let selectedTheme: ThemeId = 'БОЖЕ';
 let lastDecodedSender: string | null = null;
 let copyableText = '';
 let copyLabel = '📋 Скопировать';
+let ttsText = '';
 let pendingSenderKey: Uint8Array | null = null;
 const contactCodes = new Map<string, string>(); // publicKeyHex → "XXXX XXXX XXXX XXXX"
 
@@ -498,6 +499,8 @@ async function processInput(): Promise<void> {
     outputEl.textContent = '';
     setOutputLabel('');
     setCopyableText('', '📋 Скопировать');
+    ttsText = '';
+    ttsText = '';
     lastDecodedSender = null;
     updateStatus();
     return;
@@ -549,6 +552,7 @@ async function handleEncode(plaintext: string): Promise<void> {
     outputEl.textContent = stegoText;
     setOutputLabel(contact ? 'Зашифровано' : 'Зашифровано для себя');
     setCopyableText(stegoText, 'Скопировать сообщение');
+    ttsText = stegoText;
     updateStatus();
   } catch (e) {
     showError(`Ошибка шифрования: ${(e as Error).message}`);
@@ -616,12 +620,14 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
         outputEl.textContent = '';
         setOutputLabel('');
         setCopyableText('', '📋 Скопировать');
+    ttsText = '';
       } else {
         // Unknown sender — offer to save (no chat commit until saved)
         pendingSenderKey = senderPub;
         lastDecodedSender = '(новый контакт)';
         outputEl.textContent = plaintext;
         setCopyableText(plaintext, 'Скопировать текст');
+        ttsText = inputEl.value.trim(); // ciphertext still in input
         setOutputLabel('Расшифровано · от нового контакта');
         addSaveContactBtn();
       }
@@ -690,6 +696,7 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
         outputEl.textContent = '';
         setOutputLabel('');
         setCopyableText('', '📋 Скопировать');
+    ttsText = '';
       } else {
         setOutputLabel(`Расшифровано · от ${lastDecodedSender}`);
       }
@@ -754,6 +761,7 @@ async function handleContactToken(publicKey: Uint8Array): Promise<void> {
     outputEl.textContent = `Контакт уже сохранён: ${existing.name}`;
     setOutputLabel('Контакт');
     setCopyableText('', '📋 Скопировать');
+    ttsText = '';
     updateStatus();
     return;
   }
@@ -907,7 +915,8 @@ function showOwnContactToken(): void {
   section.appendChild(details);
 
   outputEl.appendChild(section);
-  setCopyableText(inviteLink, 'Скопировать ссылку');
+  setCopyableText(stegoText, 'Скопировать текст');
+  ttsText = stegoText;
 
   inputEl.value = '';
   updateStatus('мой контакт');
@@ -995,6 +1004,7 @@ async function handleExportIdentity(): Promise<void> {
     outputEl.textContent = blob;
     setOutputLabel('Резервная копия');
     setCopyableText(blob, 'Скопировать копию');
+    ttsText = '';
     updateStatus('скопируйте и сохраните');
   } catch {
     showError('Не удалось создать резервную копию');
@@ -1029,6 +1039,7 @@ async function handleImportIdentity(): Promise<void> {
     outputEl.textContent = 'Профиль восстановлен';
     setOutputLabel('Профиль восстановлен');
     setCopyableText('', '📋 Скопировать');
+    ttsText = '';
     updateStatus();
   } catch (e) {
     showError((e as Error).message);
@@ -1076,6 +1087,7 @@ async function handleCopy(): Promise<void> {
       outputEl.textContent = '';
       setOutputLabel('');
       setCopyableText('', '📋 Скопировать');
+    ttsText = '';
     }
   }
 
@@ -1090,10 +1102,9 @@ function handleTts(): void {
     ttsBtn.textContent = '🔊';
     return;
   }
-  const text = outputEl.textContent;
-  if (!text) return;
+  if (!ttsText) return;
   const theme = THEMES.find(t => t.id === selectedTheme);
-  speak(text, theme?.lang ?? 'ru-RU');
+  speak(ttsText, theme?.lang ?? 'ru-RU');
   ttsBtn.textContent = '🔇';
   // Reset icon when speech ends
   const check = setInterval(() => {
