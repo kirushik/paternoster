@@ -19,6 +19,7 @@ import {
 } from './contacts';
 import { speak, stopSpeaking, isSpeaking } from './tts';
 import { exportIdentity, importIdentity } from './identity';
+import { loadChat, addChatMessage, randomChatId } from './chat';
 
 // ── State ───────────────────────────────────────────────
 
@@ -32,47 +33,6 @@ let copyableText = '';
 let copyLabel = '📋 Скопировать';
 let pendingSenderKey: Uint8Array | null = null;
 const contactCodes = new Map<string, string>(); // publicKeyHex → "XXXX XXXX XXXX XXXX"
-
-// ── Chat history (sessionStorage) ───────────────────────
-
-interface ChatMessage {
-  id: string;
-  direction: 'sent' | 'received';
-  plaintext: string;
-  encoded: string;
-  contactId: string;
-  senderName?: string;
-  timestamp: number;
-  theme: ThemeId;
-}
-
-function chatStorageKey(contactId: string): string {
-  return `paternoster_chat_${contactId}`;
-}
-
-function loadChat(contactId: string): ChatMessage[] {
-  try {
-    const raw = sessionStorage.getItem(chatStorageKey(contactId));
-    if (!raw) return [];
-    return JSON.parse(raw);
-  } catch { return []; }
-}
-
-function saveChat(contactId: string, messages: ChatMessage[]): void {
-  sessionStorage.setItem(chatStorageKey(contactId), JSON.stringify(messages));
-}
-
-function addChatMessage(msg: ChatMessage): void {
-  const messages = loadChat(msg.contactId);
-  messages.push(msg);
-  saveChat(msg.contactId, messages);
-}
-
-function randomChatId(): string {
-  return Array.from(crypto.getRandomValues(new Uint8Array(6)))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 // ── DOM refs ────────────────────────────────────────────
 
@@ -391,6 +351,7 @@ function renderChat(): void {
   for (const msg of messages) {
     const bubble = document.createElement('div');
     bubble.className = `chat-message ${msg.direction}`;
+    bubble.dataset.msgId = msg.id;
 
     const text = document.createElement('div');
     text.className = 'chat-text';
@@ -434,6 +395,15 @@ function renderChat(): void {
 
   // Auto-scroll to bottom
   chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+function flashChatMessage(msgId: string): void {
+  const chatEl = $('chat-area') as HTMLDivElement;
+  const bubble = chatEl.querySelector(`[data-msg-id="${msgId}"]`) as HTMLElement | null;
+  if (!bubble) return;
+  bubble.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  bubble.classList.add('flash');
+  bubble.addEventListener('animationend', () => bubble.classList.remove('flash'), { once: true });
 }
 
 function setOutputLabel(text: string): void {
@@ -624,7 +594,7 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
         lastDecodedSender = knownSender.name;
 
         // Commit to chat + auto-clear
-        addChatMessage({
+        const chatResult = addChatMessage({
           id: randomChatId(),
           direction: 'received',
           plaintext,
@@ -640,6 +610,7 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
           renderContacts();
         }
         renderChat();
+        if (!chatResult.added) flashChatMessage(chatResult.duplicateId);
         inputEl.value = '';
         autoGrow(inputEl);
         outputEl.textContent = '';
@@ -697,7 +668,7 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
         }
 
         // Commit to chat + auto-clear
-        addChatMessage({
+        const chatResult = addChatMessage({
           id: randomChatId(),
           direction: 'received',
           plaintext,
@@ -713,6 +684,7 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
           renderContacts();
         }
         renderChat();
+        if (!chatResult.added) flashChatMessage(chatResult.duplicateId);
         inputEl.value = '';
         autoGrow(inputEl);
         outputEl.textContent = '';
@@ -1087,7 +1059,7 @@ async function handleCopy(): Promise<void> {
   if (selectedContactId && copyLabel === 'Скопировать сообщение') {
     const plaintext = inputEl.value.trim();
     if (plaintext) {
-      addChatMessage({
+      const chatResult = addChatMessage({
         id: randomChatId(),
         direction: 'sent',
         plaintext,
@@ -1097,6 +1069,7 @@ async function handleCopy(): Promise<void> {
         theme: selectedTheme,
       });
       renderChat();
+      if (!chatResult.added) flashChatMessage(chatResult.duplicateId);
       // Auto-clear working area for next message
       inputEl.value = '';
       autoGrow(inputEl);

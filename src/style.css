@@ -135,6 +135,16 @@ body {
   opacity: 1 !important;
 }
 
+@keyframes chat-flash {
+  0%, 100% { opacity: 1; }
+  25% { opacity: 0.4; }
+  50% { opacity: 1; }
+  75% { opacity: 0.4; }
+}
+.chat-message.flash {
+  animation: chat-flash 0.8s ease;
+}
+
 /* ── Text input ────────────────────────────────────── */
 
 textarea#input {
