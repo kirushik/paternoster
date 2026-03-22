@@ -29,7 +29,9 @@ let selectedContactId: string | null = null;
 let selectedTheme: ThemeId = 'БОЖЕ';
 let isDecodeMode = false;
 let lastDecodedSender: string | null = null;
-let copyableText = ''; // What the main copy button should copy
+let copyableText = '';
+let copyLabel = '📋 Скопировать';
+let pendingSenderKey: Uint8Array | null = null;
 const contactCodes = new Map<string, string>(); // publicKeyHex → "XXXX XXXX XXXX XXXX"
 
 // ── DOM refs ────────────────────────────────────────────
@@ -37,6 +39,7 @@ const contactCodes = new Map<string, string>(); // publicKeyHex → "XXXX XXXX X
 const $ = (id: string) => document.getElementById(id)!;
 let inputEl: HTMLTextAreaElement;
 let outputEl: HTMLDivElement;
+let outputLabelEl: HTMLDivElement;
 let contactsEl: HTMLDivElement;
 let themeSelect: HTMLSelectElement;
 let statusEl: HTMLDivElement;
@@ -67,7 +70,7 @@ async function init(): Promise<void> {
   refreshContactCodes();
 
   // Check URL hash for invite token
-  checkHashInvite();
+  await checkHashInvite();
 
   // If we have a selected contact, trigger initial encode of empty/demo content
   if (inputEl.value) {
@@ -76,7 +79,7 @@ async function init(): Promise<void> {
 }
 
 /** Check location.hash for an invite token and offer to add the contact. */
-function checkHashInvite(): void {
+async function checkHashInvite(): Promise<void> {
   const hash = location.hash.slice(1); // remove '#'
   if (!hash) return;
 
@@ -89,7 +92,7 @@ function checkHashInvite(): void {
   // Don't add your own key
   if (u8eq(key, myPublicKey)) return;
 
-  handleContactToken(key);
+  await handleContactToken(key);
 }
 
 async function loadOrCreateIdentity(): Promise<void> {
@@ -125,6 +128,130 @@ async function refreshContactCodes(): Promise<void> {
   }
 }
 
+// ── Dialog utility ──────────────────────────────────────
+
+interface DialogField {
+  name: string;
+  type: 'text' | 'password' | 'textarea';
+  placeholder: string;
+}
+
+function showDialog(config: {
+  title: string;
+  message?: string;
+  fields?: DialogField[];
+  confirmLabel: string;
+  validate?: (values: Record<string, string>) => string | null;
+}): Promise<Record<string, string> | null> {
+  return new Promise(resolve => {
+    let resolved = false;
+    const finish = (value: Record<string, string> | null) => {
+      if (resolved) return;
+      resolved = true;
+      dialog.close();
+      dialog.remove();
+      resolve(value);
+    };
+
+    const dialog = document.createElement('dialog');
+    dialog.className = 'app-dialog';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'dialog-title';
+    titleEl.textContent = config.title;
+    dialog.appendChild(titleEl);
+
+    if (config.message) {
+      const msgEl = document.createElement('div');
+      msgEl.className = 'dialog-message';
+      msgEl.textContent = config.message;
+      dialog.appendChild(msgEl);
+    }
+
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'dialog-error';
+    dialog.appendChild(errorDiv);
+
+    const inputs = new Map<string, HTMLInputElement | HTMLTextAreaElement>();
+
+    if (config.fields && config.fields.length > 0) {
+      const fieldsDiv = document.createElement('div');
+      fieldsDiv.className = 'dialog-fields';
+      for (const field of config.fields) {
+        let input: HTMLInputElement | HTMLTextAreaElement;
+        if (field.type === 'textarea') {
+          input = document.createElement('textarea');
+        } else {
+          input = document.createElement('input');
+          (input as HTMLInputElement).type = field.type;
+        }
+        input.placeholder = field.placeholder;
+        inputs.set(field.name, input);
+
+        // Enter in text/password fields submits the dialog
+        if (field.type !== 'textarea') {
+          input.addEventListener('keydown', ((e: KeyboardEvent) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              confirmBtn.click();
+            }
+          }) as EventListener);
+        }
+
+        fieldsDiv.appendChild(input);
+      }
+      dialog.appendChild(fieldsDiv);
+    }
+
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'dialog-actions';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'dialog-cancel';
+    cancelBtn.textContent = 'Отмена';
+    cancelBtn.type = 'button';
+    actionsDiv.appendChild(cancelBtn);
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'dialog-confirm';
+    confirmBtn.textContent = config.confirmLabel;
+    confirmBtn.type = 'button';
+    actionsDiv.appendChild(confirmBtn);
+
+    dialog.appendChild(actionsDiv);
+
+    const collectValues = (): Record<string, string> => {
+      const values: Record<string, string> = {};
+      for (const [name, input] of inputs) {
+        values[name] = input.value;
+      }
+      return values;
+    };
+
+    confirmBtn.addEventListener('click', () => {
+      const values = collectValues();
+      if (config.validate) {
+        const error = config.validate(values);
+        if (error) {
+          errorDiv.textContent = error;
+          return;
+        }
+      }
+      finish(values);
+    });
+
+    cancelBtn.addEventListener('click', () => finish(null));
+    dialog.addEventListener('cancel', () => finish(null));
+
+    document.body.appendChild(dialog);
+    dialog.showModal();
+
+    // Focus the first input field
+    const firstInput = inputs.values().next().value;
+    if (firstInput) (firstInput as HTMLElement).focus();
+  });
+}
+
 // ── Render ──────────────────────────────────────────────
 
 function render(): void {
@@ -134,10 +261,11 @@ function render(): void {
     <div class="theme-bar">
       <label>Словарь: <select id="theme-select"></select></label>
     </div>
-    <textarea id="input" placeholder="Напишите сообщение или вставьте зашифрованный текст..." rows="4"></textarea>
+    <textarea id="input" placeholder="Вставьте код, ссылку или сообщение — приложение само поймёт" rows="4"></textarea>
     <div class="output-area">
+      <div id="output-mode-label" class="output-mode-label"></div>
       <div id="output" class="output-label"></div>
-      <div class="output-actions">
+      <div class="output-actions" id="output-actions">
         <button id="copy-btn" class="action-btn" title="Скопировать">📋 Скопировать</button>
         <button id="tts-btn" class="action-btn" title="Прочитать вслух">🔊</button>
       </div>
@@ -149,6 +277,7 @@ function render(): void {
 
   inputEl = $('input') as HTMLTextAreaElement;
   outputEl = $('output') as HTMLDivElement;
+  outputLabelEl = $('output-mode-label') as HTMLDivElement;
   contactsEl = $('contacts-bar') as HTMLDivElement;
   themeSelect = $('theme-select') as HTMLSelectElement;
   statusEl = $('status') as HTMLDivElement;
@@ -176,6 +305,15 @@ function renderContacts(): void {
     btn.dataset.id = c.id;
     btn.title = contactCodes.get(c.publicKeyHex) || u8hex(getContactKey(c)).slice(0, 16) + '...';
     btn.textContent = c.name;
+
+    // × delete button on selected contact pill
+    if (c.id === selectedContactId) {
+      const del = document.createElement('span');
+      del.className = 'contact-delete';
+      del.textContent = '×';
+      btn.appendChild(del);
+    }
+
     contactsEl.appendChild(btn);
   }
 
@@ -192,10 +330,20 @@ function renderThemeSelect(): void {
   ).join('');
 }
 
+function setOutputLabel(text: string): void {
+  outputLabelEl.textContent = text;
+}
+
+function setCopyableText(text: string, label: string): void {
+  copyableText = text;
+  copyLabel = label;
+  copyBtn.textContent = label;
+}
+
 function updateStatus(extra?: string): void {
   const contactName = selectedContactId
     ? contacts.find(c => c.id === selectedContactId)?.name ?? '?'
-    : 'Я';
+    : 'себя';
   const outputLen = outputEl.textContent?.length ?? 0;
   const parts = [`для ${contactName}`, selectedTheme];
   if (outputLen > 0) parts.push(`${outputLen} символов`);
@@ -226,6 +374,14 @@ function wireEvents(): void {
   });
 
   contactsEl.addEventListener('click', (e) => {
+    // Check if × delete button was clicked
+    const deleteEl = (e.target as HTMLElement).closest('.contact-delete') as HTMLElement | null;
+    if (deleteEl) {
+      const pill = deleteEl.closest('[data-id]') as HTMLElement | null;
+      if (pill) handleDeleteContact(pill.dataset.id!);
+      return;
+    }
+
     const btn = (e.target as HTMLElement).closest('[data-id]') as HTMLElement | null;
     if (!btn) return;
     const id = btn.dataset.id!;
@@ -244,25 +400,6 @@ function wireEvents(): void {
     renderContacts();
   });
 
-  // Long-press to delete contact (mobile-friendly)
-  let longPressTimer: ReturnType<typeof setTimeout>;
-  contactsEl.addEventListener('pointerdown', (e) => {
-    const btn = (e.target as HTMLElement).closest('[data-id]') as HTMLElement | null;
-    if (!btn || btn.dataset.id === 'self' || btn.dataset.id === 'add') return;
-    longPressTimer = setTimeout(() => {
-      const contact = contacts.find(c => c.id === btn.dataset.id);
-      if (contact && confirm(`Удалить контакт "${contact.name}"?`)) {
-        removeContact(contact.id);
-        contacts = loadContacts();
-        if (selectedContactId === contact.id) selectedContactId = null;
-        renderContacts();
-        processInput();
-      }
-    }, 600);
-  });
-  contactsEl.addEventListener('pointerup', () => clearTimeout(longPressTimer));
-  contactsEl.addEventListener('pointerleave', () => clearTimeout(longPressTimer));
-
   copyBtn.addEventListener('click', handleCopy);
   ttsBtn.addEventListener('click', handleTts);
   $('download-btn').addEventListener('click', handleDownload);
@@ -276,10 +413,14 @@ function autoGrow(el: HTMLTextAreaElement): void {
 // ── Core logic ──────────────────────────────────────────
 
 async function processInput(): Promise<void> {
+  pendingSenderKey = null;
+  removeSaveContactBtn();
+
   const text = inputEl.value.trim();
   if (!text) {
     outputEl.textContent = '';
-    copyableText = '';
+    setOutputLabel('');
+    setCopyableText('', '📋 Скопировать');
     isDecodeMode = false;
     lastDecodedSender = null;
     updateStatus();
@@ -289,7 +430,7 @@ async function processInput(): Promise<void> {
   // Try base64url invite token first (compact format: 44 chars)
   const inviteContact = tryParseInviteToken(text);
   if (inviteContact) {
-    handleContactToken(inviteContact);
+    await handleContactToken(inviteContact);
     return;
   }
 
@@ -325,7 +466,8 @@ async function handleEncode(plaintext: string): Promise<void> {
 
     const stegoText = stegoEncode(wireFrame, selectedTheme);
     outputEl.textContent = stegoText;
-    copyableText = stegoText;
+    setOutputLabel(contact ? 'Зашифровано' : 'Зашифровано для себя');
+    setCopyableText(stegoText, 'Скопировать сообщение');
     updateStatus();
   } catch (e) {
     showError(`Ошибка шифрования: ${(e as Error).message}`);
@@ -341,7 +483,7 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
   }
 
   if (frame.type === CONTACT_TOKEN) {
-    handleContactToken(frame.publicKey);
+    await handleContactToken(frame.publicKey);
     return;
   }
 
@@ -377,18 +519,16 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
       const decrypted = await decrypt(frame.payload, myPrivateKey, key);
       const plaintext = decompress(decrypted);
       outputEl.textContent = plaintext;
-      copyableText = plaintext;
+      setCopyableText(plaintext, 'Скопировать текст');
       lastDecodedSender = name;
 
-      // If sender key was included and sender is unknown — offer to save
+      // If sender key was included and sender is unknown — show message first, then offer to save
       if (frame.senderPublicKey && !findContactByKey(frame.senderPublicKey)) {
-        const contactName = prompt(`Сообщение от нового контакта.\nНазовите его:`);
-        if (contactName) {
-          addContact(contactName, frame.senderPublicKey);
-          contacts = loadContacts();
-          lastDecodedSender = contactName;
-          renderContacts();
-        }
+        pendingSenderKey = frame.senderPublicKey;
+        setOutputLabel('Расшифровано · от нового контакта');
+        addSaveContactBtn();
+      } else {
+        setOutputLabel(`Расшифровано · от ${lastDecodedSender}`);
       }
 
       updateStatus(`от ${lastDecodedSender}`);
@@ -400,27 +540,83 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
 
   showError('Не удалось расшифровать. Возможно, у вас нет ключа отправителя');
   outputEl.textContent = '';
+  setOutputLabel('');
   updateStatus();
 }
 
-function handleContactToken(publicKey: Uint8Array): void {
+function addSaveContactBtn(): void {
+  const actionsEl = $('output-actions');
+  const btn = document.createElement('button');
+  btn.className = 'action-btn save-contact-btn';
+  btn.id = 'save-contact-btn';
+  btn.textContent = 'Сохранить контакт';
+  btn.addEventListener('click', handleSavePendingContact);
+  actionsEl.appendChild(btn);
+}
+
+function removeSaveContactBtn(): void {
+  const btn = document.getElementById('save-contact-btn');
+  if (btn) btn.remove();
+}
+
+async function handleSavePendingContact(): Promise<void> {
+  if (!pendingSenderKey) return;
+
+  const result = await showDialog({
+    title: 'Сохранить контакт',
+    fields: [{ name: 'name', type: 'text', placeholder: 'Имя контакта' }],
+    confirmLabel: 'Сохранить',
+    validate: (values) => {
+      if (!values.name.trim()) return 'Введите имя контакта';
+      return null;
+    },
+  });
+  if (!result) return;
+
+  const name = result.name.trim();
+  addContact(name, pendingSenderKey);
+  contacts = loadContacts();
+  lastDecodedSender = name;
+  pendingSenderKey = null;
+  removeSaveContactBtn();
+  renderContacts();
+  refreshContactCodes();
+  setOutputLabel(`Расшифровано · от ${name}`);
+  updateStatus(`от ${name}`);
+}
+
+async function handleContactToken(publicKey: Uint8Array): Promise<void> {
   const existing = findContactByKey(publicKey);
   if (existing) {
     outputEl.textContent = `Контакт уже сохранён: ${existing.name}`;
+    setOutputLabel('Контакт');
+    setCopyableText('', '📋 Скопировать');
     updateStatus();
     return;
   }
 
-  const name = prompt('Обнаружен новый контакт.\nДайте ему имя:');
-  if (!name) return;
+  const result = await showDialog({
+    title: 'Новый контакт',
+    message: 'Обнаружен новый контакт.',
+    fields: [{ name: 'name', type: 'text', placeholder: 'Имя контакта' }],
+    confirmLabel: 'Сохранить',
+    validate: (values) => {
+      if (!values.name.trim()) return 'Введите имя контакта';
+      return null;
+    },
+  });
+  if (!result) return;
 
+  const name = result.name.trim();
   addContact(name, publicKey);
   contacts = loadContacts();
   selectedContactId = contacts[contacts.length - 1].id;
   setSelectedContactId(selectedContactId);
   renderContacts();
   refreshContactCodes();
-  outputEl.textContent = `Контакт "${name}" добавлен`;
+  outputEl.textContent = `Контакт «${name}» добавлен`;
+  setOutputLabel('Контакт добавлен');
+  setCopyableText('', '📋 Скопировать');
   inputEl.value = '';
   updateStatus();
 }
@@ -465,6 +661,8 @@ function showOwnContactToken(): void {
   const stegoText = stegoEncode(tokenBytes, selectedTheme);
 
   outputEl.textContent = '';
+  setOutputLabel('Мой контакт');
+
   const section = document.createElement('div');
   section.className = 'invite-section';
 
@@ -491,10 +689,10 @@ function showOwnContactToken(): void {
   linkEl.textContent = inviteLink;
   section.appendChild(linkEl);
 
-  const copyBtn = document.createElement('button');
-  copyBtn.className = 'action-btn invite-copy-btn';
-  copyBtn.textContent = '📋 Скопировать ссылку';
-  copyBtn.addEventListener('click', async () => {
+  const inviteCopyBtn = document.createElement('button');
+  inviteCopyBtn.className = 'action-btn invite-copy-btn';
+  inviteCopyBtn.textContent = '📋 Скопировать ссылку';
+  inviteCopyBtn.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(inviteLink);
     } catch {
@@ -506,10 +704,10 @@ function showOwnContactToken(): void {
       document.execCommand('copy');
       document.body.removeChild(ta);
     }
-    copyBtn.textContent = '✓ Скопировано';
-    setTimeout(() => { copyBtn.textContent = '📋 Скопировать ссылку'; }, 1500);
+    inviteCopyBtn.textContent = '✓ Скопировано';
+    setTimeout(() => { inviteCopyBtn.textContent = '📋 Скопировать ссылку'; }, 1500);
   });
-  section.appendChild(copyBtn);
+  section.appendChild(inviteCopyBtn);
 
   addLabel('Или код для вставки:');
 
@@ -525,60 +723,64 @@ function showOwnContactToken(): void {
   stegoDiv.textContent = stegoText;
   section.appendChild(stegoDiv);
 
-  // Identity export/import buttons
-  addLabel('Личность:');
+  // Profile export/import wrapped in <details>
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.textContent = 'Дополнительно';
+  details.appendChild(summary);
 
   const exportBtn = document.createElement('button');
   exportBtn.className = 'action-btn';
-  exportBtn.textContent = 'Сохранить личность';
+  exportBtn.textContent = 'Сохранить профиль';
   exportBtn.addEventListener('click', handleExportIdentity);
-  section.appendChild(exportBtn);
+  details.appendChild(exportBtn);
 
   const importBtn = document.createElement('button');
   importBtn.className = 'action-btn';
-  importBtn.textContent = 'Восстановить личность';
+  importBtn.textContent = 'Восстановить профиль';
   importBtn.addEventListener('click', handleImportIdentity);
-  section.appendChild(importBtn);
+  details.appendChild(importBtn);
+
+  section.appendChild(details);
 
   outputEl.appendChild(section);
-  copyableText = inviteLink;
+  setCopyableText(inviteLink, 'Скопировать ссылку');
 
   inputEl.value = '';
   updateStatus('мой контакт');
 }
 
-function handleAddContact(): void {
-  const input = prompt('Вставьте приглашение или ключ контакта:');
-  if (!input) return;
-  const clean = input.trim();
+async function handleAddContact(): Promise<void> {
+  let parsedKey: Uint8Array | null = null;
 
-  // Try base64url invite token
-  let key = tryParseInviteToken(clean);
+  const result = await showDialog({
+    title: 'Добавить контакт',
+    fields: [
+      { name: 'token', type: 'text', placeholder: 'Код приглашения или ключ' },
+      { name: 'name', type: 'text', placeholder: 'Имя контакта' },
+    ],
+    confirmLabel: 'Добавить',
+    validate: (values) => {
+      if (!values.token.trim()) return 'Вставьте приглашение или ключ';
+      if (!values.name.trim()) return 'Введите имя контакта';
 
-  // Try hex (64 hex chars = 32 bytes)
-  if (!key) {
-    const hexClean = clean.replace(/\s/g, '').toUpperCase();
-    if (/^[0-9A-F]{64}$/.test(hexClean)) {
-      key = hexU8(hexClean);
-    }
-  }
+      const clean = values.token.trim();
+      parsedKey = tryParseInviteToken(clean);
+      if (!parsedKey) {
+        const hexClean = clean.replace(/\s/g, '').toUpperCase();
+        if (/^[0-9A-F]{64}$/.test(hexClean)) {
+          parsedKey = hexU8(hexClean);
+        }
+      }
+      if (!parsedKey) return 'Неверный формат (вставьте приглашение или 64 hex-символа)';
+      if (u8eq(parsedKey, myPublicKey)) return 'Это ваш собственный ключ';
+      if (findContactByKey(parsedKey)) return 'Этот контакт уже добавлен';
+      return null;
+    },
+  });
+  if (!result || !parsedKey) return;
 
-  if (!key) {
-    showError('Неверный формат (вставьте приглашение или 64 hex-символа)');
-    return;
-  }
-
-  if (u8eq(key, myPublicKey)) {
-    showError('Это ваш собственный ключ');
-    return;
-  }
-  if (findContactByKey(key)) {
-    showError('Этот контакт уже добавлен');
-    return;
-  }
-  const name = prompt('Имя для контакта:');
-  if (!name) return;
-  const contact = addContact(name, key);
+  const contact = addContact(result.name.trim(), parsedKey);
   contacts = loadContacts();
   selectedContactId = contact.id;
   setSelectedContactId(contact.id);
@@ -587,18 +789,49 @@ function handleAddContact(): void {
   processInput();
 }
 
-async function handleExportIdentity(): Promise<void> {
-  const passphrase = prompt('Придумайте пароль для резервной копии:');
-  if (!passphrase) return;
-  const confirm = prompt('Повторите пароль:');
-  if (passphrase !== confirm) {
-    showError('Пароли не совпадают');
-    return;
+async function handleDeleteContact(contactId: string): Promise<void> {
+  const contact = contacts.find(c => c.id === contactId);
+  if (!contact) return;
+
+  const result = await showDialog({
+    title: 'Удалить контакт?',
+    message: `Контакт «${contact.name}» будет удалён.`,
+    confirmLabel: 'Удалить',
+  });
+  if (!result) return;
+
+  removeContact(contact.id);
+  contacts = loadContacts();
+  if (selectedContactId === contact.id) {
+    selectedContactId = null;
+    setSelectedContactId('');
   }
+  renderContacts();
+  processInput();
+}
+
+async function handleExportIdentity(): Promise<void> {
+  const result = await showDialog({
+    title: 'Сохранить профиль',
+    message: 'Создайте пароль для резервной копии.',
+    fields: [
+      { name: 'password', type: 'password', placeholder: 'Пароль' },
+      { name: 'confirm', type: 'password', placeholder: 'Повторите пароль' },
+    ],
+    confirmLabel: 'Сохранить',
+    validate: (values) => {
+      if (!values.password) return 'Введите пароль';
+      if (values.password !== values.confirm) return 'Пароли не совпадают';
+      return null;
+    },
+  });
+  if (!result) return;
+
   try {
-    const blob = await exportIdentity(myPrivateKey, myPublicKey, passphrase);
+    const blob = await exportIdentity(myPrivateKey, myPublicKey, result.password);
     outputEl.textContent = blob;
-    copyableText = blob;
+    setOutputLabel('Резервная копия');
+    setCopyableText(blob, 'Скопировать копию');
     updateStatus('скопируйте и сохраните');
   } catch {
     showError('Не удалось создать резервную копию');
@@ -606,20 +839,33 @@ async function handleExportIdentity(): Promise<void> {
 }
 
 async function handleImportIdentity(): Promise<void> {
-  if (!confirm('Внимание: восстановление заменит вашу текущую личность.\nВаши контакты сохранятся, но для них вы станете другим собеседником.\n\nПродолжить?')) return;
-  const blob = prompt('Вставьте резервную копию:');
-  if (!blob) return;
-  const passphrase = prompt('Введите пароль:');
-  if (!passphrase) return;
+  const result = await showDialog({
+    title: 'Восстановить профиль',
+    message: 'Внимание: восстановление заменит ваш текущий профиль. Ваши контакты сохранятся, но для них вы станете другим собеседником.',
+    fields: [
+      { name: 'blob', type: 'textarea', placeholder: 'Вставьте резервную копию' },
+      { name: 'password', type: 'password', placeholder: 'Пароль' },
+    ],
+    confirmLabel: 'Восстановить',
+    validate: (values) => {
+      if (!values.blob.trim()) return 'Вставьте резервную копию';
+      if (!values.password) return 'Введите пароль';
+      return null;
+    },
+  });
+  if (!result) return;
+
   try {
-    const { privateKey, publicKey } = await importIdentity(blob.trim(), passphrase);
+    const { privateKey, publicKey } = await importIdentity(result.blob.trim(), result.password);
     myPrivateKey = privateKey;
     myPublicKey = publicKey;
     storageSet(STORAGE.privateKey, u8hex(myPrivateKey));
     storageSet(STORAGE.publicKey, u8hex(myPublicKey));
     contactCodes.clear();
     refreshContactCodes();
-    outputEl.textContent = 'Личность восстановлена';
+    outputEl.textContent = 'Профиль восстановлен';
+    setOutputLabel('Профиль восстановлен');
+    setCopyableText('', '📋 Скопировать');
     updateStatus();
   } catch (e) {
     showError((e as Error).message);
@@ -657,7 +903,7 @@ async function handleCopy(): Promise<void> {
 
   // Visual feedback
   copyBtn.textContent = '✓ Скопировано';
-  setTimeout(() => { copyBtn.textContent = '📋 Скопировать'; }, 1500);
+  setTimeout(() => { copyBtn.textContent = copyLabel; }, 1500);
 }
 
 function handleTts(): void {
@@ -684,8 +930,10 @@ async function handleDownload(): Promise<void> {
   // Save input/output state, clear for clean download
   const savedInput = inputEl.value;
   const savedOutput = outputEl.textContent;
+  const savedLabel = outputLabelEl.textContent;
   inputEl.value = '';
   outputEl.textContent = '';
+  outputLabelEl.textContent = '';
   statusEl.textContent = '';
   errorEl.textContent = '';
 
@@ -705,6 +953,7 @@ async function handleDownload(): Promise<void> {
   // Restore state
   inputEl.value = savedInput;
   outputEl.textContent = savedOutput;
+  outputLabelEl.textContent = savedLabel;
 
   const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
   const url = URL.createObjectURL(blob);
