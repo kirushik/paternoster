@@ -8,9 +8,9 @@ Encrypted data is indistinguishable from random bytes — compressors can't find
 
 ## Compression Modes
 
-The compression mode is signaled in the wire header byte (MM bits), not inside the encrypted payload. The header byte is authenticated via AAD — tampering causes decryption failure.
+The compression mode is embedded in the top 2 bits of seed[0] (the first byte of the encrypted payload on the wire). These bits are part of the HKDF salt, so tampering changes the derived key → decryption fails (effectively authenticated without a separate header byte).
 
-| Header MM bits | Mode | When used |
+| seed[0] bits 7-6 | Mode | When used |
 |---|---|---|
 | `00` | Literal UTF-8 | When no compression helps (very short or high-entropy) |
 | `01` | Squash + smaz | Most Russian messages (when smaz compresses well) |

@@ -10,15 +10,15 @@ The original codebase bundled noble-curves (5350 lines). Web Crypto API added X2
 
 X25519 (Curve25519 ECDH) provides 128-bit security with 32-byte keys — the shortest keys at this security level. Short keys mean shorter contact tokens and invite links. AES-256-GCM is the standard authenticated encryption mode available in every Web Crypto implementation. HKDF-SHA256 derives the AES key from the ECDH shared secret.
 
-**Improvement over original:** The old code used empty HKDF salt and info. We use `"paternoster-v2" || seed` as salt and `[header_byte, direction_byte]` as info for per-message key derivation with full domain separation.
+HKDF uses `"paternoster-v2" || seed` as salt and `[class_byte, direction_byte]` as info for per-message key derivation with full domain separation.
 
 ## Threat Model
 
 **Platform surveillance.** Messages traverse monitored platforms (Telegram, VK, email). The adversary scans for encrypted content patterns. Encryption prevents reading; steganographic encoding prevents detection. The crypto doesn't protect against device seizure (keys are in localStorage) or a compromised browser.
 
-**Not in scope:** forward secrecy (static key pairs). Messages are not digitally signed. Sender identity is inferred from which contact key successfully decrypts (MSG_STANDARD) or from the sender key inside the encrypted envelope (MSG_INTRODUCTION). First-contact trust is TOFU unless users verify contact codes out-of-band.
+**Not in scope:** forward secrecy (static key pairs). Messages are not digitally signed. Sender identity is inferred from which contact key successfully decrypts (MSG) or from the sender key inside the encrypted envelope (INTRO). First-contact trust is TOFU unless users verify contact codes out-of-band.
 
-**Deniable authentication:** ECDH is symmetric — `ECDH(Alice_priv, Bob_pub) = ECDH(Bob_priv, Alice_pub)`. Both parties can verify the other's identity but neither can prove authorship to a third party. This property is preserved for MSG_STANDARD messages. MSG_INTRODUCTION uses an ephemeral key, which doesn't authenticate the sender (trust-on-first-use, verified via codes).
+**Deniable authentication:** ECDH is symmetric — `ECDH(Alice_priv, Bob_pub) = ECDH(Bob_priv, Alice_pub)`. Both parties can verify the other's identity but neither can prove authorship to a third party. This property is preserved for MSG messages. INTRO uses an ephemeral key, which doesn't authenticate the sender (trust-on-first-use, verified via codes).
 
 **Contact verification:** Each contact's public key has a short verification code (SHA-256 of public key, first 8 bytes, displayed as `XXXX XXXX XXXX XXXX`). This is a convenience code for quick human comparison (32 bits of collision resistance), not a formal cryptographic fingerprint — sufficient for honest verification, not for adversarial scenarios. Shown on hover over contact pills and in the "Я" view.
 
@@ -26,79 +26,89 @@ X25519 (Curve25519 ECDH) provides 128-bit security with 32-byte keys — the sho
 
 ## Wire Format
 
-V2 reduces fixed AEAD overhead from 29 bytes to 19 bytes per message.
+Headerless frames — every frame starts with random bytes for optimal steganographic cover.
 
-**Unified header byte** — replaces both the V1 type byte and the inner compression flags byte:
+**Frame structures:**
 
+| Class | Structure | Fixed overhead |
+|---|---|---|
+| MSG | `[seed:6][ciphertext][tag:12]` | 18 bytes |
+| INTRO | `[eph_pub:32][seed:6][ciphertext(sender_pub:32 + payload)][tag:12]` | 50 bytes |
+| CONTACT | `[pub:32][check:1]` | 33 bytes |
+
+**No header byte.** Frame type is determined by:
+1. Trial decryption as MSG (try each contact's key)
+2. Trial decryption as INTRO (first 32 bytes as ephemeral key)
+3. CONTACT check byte validation (`bytes[32] == XOR-fold(bytes[0:32])`)
+
+This order is safe: AES-GCM's 96-bit tag makes false accepts astronomically unlikely (2^-96 per attempt).
+
+**Compression mode** is embedded in seed[0]'s top 2 bits:
 ```
-Bits: VV CC MM FF
-  VV = version:     01
-  CC = class:       00=CONTACT, 01=INTRO, 10=MSG, 11=reserved
-  MM = compression:  00=literal, 01=squash+smaz, 10=squash-only, 11=reserved
-  FF = flags:        00=default (reserved for future use)
+seed[0]: [comp:2 bits][random:6 bits]
+seed[1..5]: fully random
 ```
 
-Squash-only mode (`MM=10`) encodes Cyrillic as CP1251 without smaz dictionary compression. This is better than squash+smaz when smaz's verbatim escape overhead would expand the output (short messages, mixed content, emoji-heavy text). The compressor automatically picks the smallest of literal, squash-only, and squash+smaz.
+| comp bits | Mode |
+|---|---|
+| 00 | Literal UTF-8 |
+| 01 | Squash + smaz |
+| 10 | Squash only (CP1251, no smaz) |
+| 11 | Reserved |
 
-The header byte is authenticated via AEAD Additional Data (AAD) — flipping any bit causes decryption failure.
+The comp bits are part of the HKDF salt (via the seed), so flipping them changes the derived key → decryption fails. Effectively authenticated.
 
-**V2 frame structures:**
+**Key exchange confirmation:**
 
-| Class | Header | Structure | Fixed overhead |
-|---|---|---|---|
-| MSG | `01_10_MM_00` | `[H:1][seed:6][ciphertext][tag:12]` | 19 bytes |
-| INTRO | `01_01_MM_00` | `[H:1][eph_pub:32][seed:6][ciphertext(sender_pub:32 + payload)][tag:12]` | 83 bytes |
-| CONTACT | `01_00_00_00` | `[H:1][pubkey:32]` | 33 bytes |
+The `keyExchangeConfirmed` flag on each contact tracks whether we have proof they possess our public key. Set when we successfully decrypt any message from them. Until confirmed, every outgoing message uses INTRO. After confirmation, MSG is used (no sender key, no ephemeral key overhead).
 
-**Why V2 is smaller:**
+### KDF Specification
 
-| Component | V1 | V2 | Saved |
-|---|---|---|---|
-| Type / header | 1 byte | 1 byte (unified — also carries compression mode) | 0 |
-| Inner compression flags | 1 byte | 0 (moved into header) | 1 |
-| IV / seed | 12 bytes (random IV) | 6 bytes (random seed → derived key+IV) | 6 |
-| Auth tag | 16 bytes (128-bit) | 12 bytes (96-bit) | 4 |
-| **Total fixed (MSG)** | **30 bytes** | **19 bytes** | **11** |
-
-#### V2 KDF Specification
-
-Each message derives a unique AES-256 key and 96-bit GCM nonce from a 6-byte random seed. Since every message gets a unique key, nonce reuse is impossible (unless seeds collide — birthday bound at ~16.7M messages per contact pair, ~200 years at 10 msgs/day).
+Each message derives a unique AES-256 key and 96-bit GCM nonce from a 6-byte random seed.
 
 ```
 seed = crypto.getRandomValues(new Uint8Array(6))
+seed[0] = (seed[0] & 0x3F) | (compMode << 6)  // stamp compression mode
 
 Direction byte (prevents same-seed Alice→Bob / Bob→Alice collision):
   0x00  if sender_pub < recipient_pub   (lexicographic byte comparison)
   0x01  otherwise
 
+Class byte (protocol constant, not on wire):
+  0x00  for MSG
+  0x01  for INTRO
+
 salt = TextEncoder.encode("paternoster-v2") || seed      // 14 + 6 = 20 bytes
-
-PRK = HKDF-Extract(salt, IKM = ECDH(my_private, their_public))
-
-OKM = HKDF-Expand(PRK, info = [header_byte, direction_byte], L = 44)
+PRK  = HKDF-Extract(salt, IKM = ECDH(my_private, their_public))
+OKM  = HKDF-Expand(PRK, info = [class_byte, direction_byte], L = 44)
 
 key = OKM[0..31]     // 256-bit AES key
 iv  = OKM[32..43]    // 96-bit GCM nonce
 
 ciphertext = AES-GCM-256(key, iv, plaintext,
                           tagLength = 96,
-                          additionalData = [header_byte])
+                          additionalData = [class_byte])
 ```
 
 **Domain separation guarantees:**
 - Different seeds → different PRK → different key+IV (per-message uniqueness)
 - Different direction bytes → different OKM even with same seed (Alice→Bob ≠ Bob→Alice)
-- Different header bytes → different OKM (MSG vs INTRO cannot collide)
-- AAD binding → header byte is authenticated, cannot be tampered
+- Different class bytes → different OKM + different AAD (MSG vs INTRO cannot collide)
+- Comp mode in seed → changing it changes PRK → decryption fails (effectively authenticated)
 
-**Seed length rationale:** 6-byte (48-bit) seed. Birthday collision probability:
+**Seed entropy:** 46 random bits (48-bit seed minus 2 comp mode bits). Birthday collision at ~8.4M messages per contact pair. At 10 msgs/day, that's ~2,300 years.
 
-| Messages | Collision probability |
-|---|---|
-| 750K | 0.1% |
-| 16.7M | 50% |
+### CONTACT Check Byte
 
-For manual covert exchange volumes, 48-bit seeds provide ample margin. This is a conscious protocol tradeoff — 8-byte seeds would be more conservative (birthday at ~4.3B) but cost 2 extra bytes per message.
+XOR-fold with salt, placed at the END of the frame (so the frame starts with the random public key):
+
+```
+check = 0x5A
+for each byte b of pub: check ^= b
+CONTACT = [pub:32][check:1]
+```
+
+Detection: `bytes.length == 33 && bytes[32] == contactCheckByte(bytes[0:32])`. False positive rate: 1/256 for random data.
 
 ## PKCS8 Wrapping
 
@@ -106,14 +116,15 @@ Web Crypto doesn't support raw X25519 private key import. We construct a PKCS8 A
 
 ## Files
 
-- `src/crypto.ts` — all crypto operations
-- `src/wire.ts` — wire format serialization
+- `src/crypto.ts` — all crypto operations (KDF, encrypt, decrypt, key management)
+- `src/wire.ts` — wire format serialization and parsing
 
 ## Gotchas
 
 - `deriveBits()` returns an `ArrayBuffer`, not `Uint8Array`. Must wrap before using.
 - Private key export goes through PKCS8 (48 bytes), not raw format. We slice the last 32 bytes.
-- Both key and IV are derived from the 6-byte seed (never transmitted). The seed MUST be fresh random per message. Seed reuse with the same contact pair produces identical key+IV → catastrophic GCM nonce reuse.
+- Both key and IV are derived from the 6-byte seed (never transmitted separately). The seed MUST be fresh random per message. Seed reuse with the same contact pair produces identical key+IV → catastrophic GCM nonce reuse.
 - INTRO generates a new ephemeral keypair per message. These are never stored — used once and discarded.
 - `tagLength: 96` must be specified on BOTH encrypt and decrypt calls. Mismatched tag lengths cause silent corruption or decrypt failure.
-- The header byte MUST be bound as AAD on both encrypt and decrypt. Without AAD, an attacker could flip compression bits without breaking decryption, causing garbled decompression.
+- The class byte MUST be used as AAD on both encrypt and decrypt. It provides domain separation between MSG and INTRO even though it's not on the wire — the sender and receiver must agree on the class for decryption to succeed.
+- Compression mode bits in seed[0] are part of the HKDF salt. Tampering with them changes the derived key, causing decryption failure. No separate AAD needed for comp mode authentication.

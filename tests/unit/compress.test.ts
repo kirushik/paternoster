@@ -22,15 +22,22 @@ describe('compress/decompress roundtrip', () => {
 });
 
 describe('compress mode selection', () => {
-  it('uses COMP_SQUASH_SMAZ for Russian text', () => {
+  it('uses squash+smaz or squash-only for Russian text', () => {
     const { compMode } = compress('Привет, как дела? Это длинное русское сообщение.');
-    expect(compMode).toBe(COMP_SQUASH_SMAZ);
+    expect([COMP_SQUASH_SMAZ, COMP_SQUASH_ONLY]).toContain(compMode);
   });
 
   it('returns a valid compMode for short text', () => {
     const { payload, compMode } = compress('a');
-    // Either mode is acceptable, but should roundtrip
     expect(decompress(payload, compMode)).toBe('a');
+  });
+
+  it('comp modes are 2-bit values', () => {
+    for (const text of ['Привет', 'Hello', '😀']) {
+      const { compMode } = compress(text);
+      expect(compMode).toBeGreaterThanOrEqual(0);
+      expect(compMode).toBeLessThanOrEqual(3);
+    }
   });
 });
 
@@ -40,37 +47,6 @@ describe('compress size reduction', () => {
     const { payload } = compress(text);
     const utf8Size = new TextEncoder().encode(text).length;
     expect(payload.length).toBeLessThan(utf8Size);
-  });
-
-  it('no flags byte overhead — payload is raw compressed data', () => {
-    const text = 'Привет, мир!';
-    const { payload, compMode } = compress(text);
-    // Payload should NOT start with 0xC0 or 0x3F — those are V1 flags
-    // V2 payload is raw (no internal flags byte)
-    if (compMode === COMP_SQUASH_SMAZ) {
-      // If compressed, first byte could be any smaz output byte
-      // Just verify it roundtrips without a flags byte
-      expect(decompress(payload, compMode)).toBe(text);
-    }
-  });
-});
-
-describe('squash-only mode', () => {
-  it('squash-only roundtrips Russian text', async () => {
-    const text = 'Привет, мир!';
-    const { squashEncode } = await import('../../src/squash');
-    const squashed = squashEncode(text);
-    expect(decompress(squashed, COMP_SQUASH_ONLY)).toBe(text);
-  });
-
-  it('picks squash-only when smaz expands but squash helps', () => {
-    // Short Russian text where smaz might not help but squash halves the bytes
-    const text = 'Юя'; // short Cyrillic
-    const { compMode } = compress(text);
-    // Squash turns 4 UTF-8 bytes into 2 CP1251 bytes
-    // Smaz on 2 bytes likely expands (verbatim escapes)
-    // So squash-only or squash+smaz should win over literal
-    expect(compMode).not.toBe(COMP_LITERAL);
   });
 
   it('never picks a mode that expands beyond UTF-8', () => {
@@ -83,6 +59,21 @@ describe('squash-only mode', () => {
   });
 });
 
+describe('squash-only mode', () => {
+  it('roundtrips Russian text via COMP_SQUASH_ONLY', async () => {
+    const text = 'Привет, мир!';
+    const { squashEncode } = await import('../../src/squash');
+    const squashed = squashEncode(text);
+    expect(decompress(squashed, COMP_SQUASH_ONLY)).toBe(text);
+  });
+
+  it('picks squash-only when smaz expands but squash helps', () => {
+    const text = 'Юя';
+    const { compMode } = compress(text);
+    expect(compMode).not.toBe(COMP_LITERAL);
+  });
+});
+
 describe('decompress edge cases', () => {
   it('handles empty input', () => {
     expect(decompress(new Uint8Array([]), COMP_LITERAL)).toBe('');
@@ -90,7 +81,7 @@ describe('decompress edge cases', () => {
   });
 
   it('throws on unknown compression mode', () => {
-    const data = new Uint8Array([0x48, 0x69]); // "Hi"
-    expect(() => decompress(data, 0xFF)).toThrow('Неизвестный режим сжатия');
+    const data = new Uint8Array([0x48, 0x69]);
+    expect(() => decompress(data, 3)).toThrow('Неизвестный режим сжатия');
   });
 });

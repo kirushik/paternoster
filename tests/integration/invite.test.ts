@@ -1,11 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { u8toBase64url, base64urlToU8 } from '../../src/utils';
-import { serializeWire, makeHeader, headerClass, CLASS_CONTACT, COMP_LITERAL } from '../../src/wire';
+import { serializeContact, contactCheckByte } from '../../src/wire';
 import { generateKeyPair } from '../../src/crypto';
 
-const CONTACT_HEADER = makeHeader(CLASS_CONTACT, COMP_LITERAL);
-
-// Reproduce tryParseInviteToken logic (it's in main.ts which has DOM deps, so we test the logic directly)
+// Reproduce tryParseInviteToken logic (main.ts has DOM deps, so we test directly)
 function tryParseInviteToken(text: string): Uint8Array | null {
   let clean = text.replace(/\s/g, '');
   const hashIdx = clean.indexOf('#');
@@ -15,8 +13,13 @@ function tryParseInviteToken(text: string): Uint8Array | null {
   if (!/^[A-Za-z0-9_-]{43,44}$/.test(clean)) return null;
   try {
     const decoded = base64urlToU8(clean);
-    if (decoded.length === 33 && headerClass(decoded[0]) === CLASS_CONTACT) return decoded.slice(1);
-    if (decoded.length === 32) return decoded;
+    // CONTACT: [pub:32][check:1] — check byte at the END
+    if (decoded.length === 33 && decoded[32] === contactCheckByte(decoded.slice(0, 32))) {
+      return decoded.slice(0, 32);
+    }
+    if (decoded.length === 32) {
+      return decoded;
+    }
   } catch {
     // not valid base64
   }
@@ -24,7 +27,7 @@ function tryParseInviteToken(text: string): Uint8Array | null {
 }
 
 function makeInviteToken(publicKey: Uint8Array): string {
-  const wire = serializeWire({ header: CONTACT_HEADER, publicKey });
+  const wire = serializeContact(publicKey);
   return u8toBase64url(wire);
 }
 
@@ -70,10 +73,10 @@ describe('invite token validation', () => {
     expect(result).not.toBeNull();
   });
 
-  it('rejects 44 chars that decode to wrong header', () => {
-    const wrongHeader = new Uint8Array(33);
-    wrongHeader[0] = 0xFF; // invalid version bits
-    const token = u8toBase64url(wrongHeader);
+  it('rejects 44 chars that decode to wrong check byte', () => {
+    const wrongCheck = new Uint8Array(33);
+    wrongCheck[32] = 0xFF; // wrong check byte for all-zero key
+    const token = u8toBase64url(wrongCheck);
     expect(tryParseInviteToken(token)).toBeNull();
   });
 });

@@ -1,12 +1,10 @@
 import './style.css';
-import { checkX25519Support, generateKeyPair, encrypt, decrypt } from './crypto';
+import { checkX25519Support, generateKeyPair, encrypt, decrypt, seedCompMode, CLASS_MSG, CLASS_INTRO } from './crypto';
 import { compress, decompress } from './compress';
 import { stegoEncode, stegoDecode } from './stego';
 import {
-  serializeWire, deserializeWire,
-  type WireIntroduction, type WireMessage,
-  headerClass, headerComp, makeHeader,
-  CLASS_CONTACT, CLASS_INTRO, CLASS_MSG, COMP_LITERAL,
+  serializeMsg, serializeIntro, serializeContact,
+  couldBeMsg, couldBeIntro, splitIntro, tryParseContact, contactCheckByte,
 } from './wire';
 import { type ThemeId, THEMES } from './dictionaries';
 import { STORAGE, storageGet, storageSet } from './storage';
@@ -590,14 +588,12 @@ async function handleEncode(plaintext: string): Promise<void> {
     if (needsIntroduction) {
       // INTRO: ephemeral key for ECDH, real sender key inside encrypted envelope
       const eph = await generateKeyPair();
-      const headerByte = makeHeader(CLASS_INTRO, compMode);
       const introPayload = concatU8(myPublicKey, compressedPayload);
-      const encrypted = await encrypt(introPayload, eph.privateKey, theirKey, eph.publicKey, theirKey, headerByte);
-      wireFrame = serializeWire({ header: headerByte, ephemeralPublicKey: eph.publicKey, payload: encrypted });
+      const encrypted = await encrypt(introPayload, eph.privateKey, theirKey, eph.publicKey, theirKey, CLASS_INTRO, compMode);
+      wireFrame = serializeIntro(eph.publicKey, encrypted);
     } else {
-      const headerByte = makeHeader(CLASS_MSG, compMode);
-      const encrypted = await encrypt(compressedPayload, myPrivateKey, theirKey, myPublicKey, theirKey, headerByte);
-      wireFrame = serializeWire({ header: headerByte, payload: encrypted });
+      const encrypted = await encrypt(compressedPayload, myPrivateKey, theirKey, myPublicKey, theirKey, CLASS_MSG, compMode);
+      wireFrame = serializeMsg(encrypted);
     }
 
     const stegoText = stegoEncode(wireFrame, selectedTheme);
@@ -693,43 +689,8 @@ function handleDecodedMsg(plaintext: string, senderName: string, contactId: stri
 }
 
 async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
-  const frame = deserializeWire(bytes);
-  if (!frame) {
-    // Not a valid wire frame — treat as plaintext to encode
-    await handleEncode(inputEl.value.trim());
-    return;
-  }
-
-  const cls = headerClass(frame.header);
-  const compMode = headerComp(frame.header);
-
-  if (cls === CLASS_CONTACT && 'publicKey' in frame) {
-    await handleContactToken(frame.publicKey);
-    return;
-  }
-
-  // INTRO: decrypt with ephemeral key, extract sender from encrypted payload
-  if (cls === CLASS_INTRO && 'ephemeralPublicKey' in frame) {
-    const intro = frame as WireIntroduction;
-    try {
-      const decrypted = await decrypt(intro.payload, myPrivateKey, intro.ephemeralPublicKey, intro.ephemeralPublicKey, myPublicKey, intro.header);
-      if (decrypted.length < 33) throw new Error('payload too short');
-      const senderPub = decrypted.slice(0, 32);
-      const plaintext = decompress(decrypted.slice(32), compMode);
-      await handleDecodedIntro(senderPub, plaintext, _theme);
-      return;
-    } catch {
-      showError('Не удалось расшифровать. Возможно, сообщение не для вас');
-      outputEl.textContent = '';
-      setOutputLabel('');
-      updateStatus();
-      return;
-    }
-  }
-
-  // MSG: try each contact's key via ECDH
-  if (cls === CLASS_MSG) {
-    const msg = frame as WireMessage;
+  // 1. Try as MSG: seed = bytes[0:6], rest = bytes[6:]
+  if (couldBeMsg(bytes)) {
     const keysToTry: { name: string; key: Uint8Array; contactId?: string }[] = [];
     for (const c of contacts) {
       keysToTry.push({ name: c.name, key: getContactKey(c), contactId: c.id });
@@ -740,7 +701,8 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
 
     for (const { name, key, contactId } of keysToTry) {
       try {
-        const decrypted = await decrypt(msg.payload, myPrivateKey, key, key, myPublicKey, msg.header);
+        const decrypted = await decrypt(bytes, myPrivateKey, key, key, myPublicKey, CLASS_MSG);
+        const compMode = seedCompMode(bytes[0]);
         const plaintext = decompress(decrypted, compMode);
         handleDecodedMsg(plaintext, name, contactId, _theme);
         return;
@@ -748,16 +710,33 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
         // Auth failed — try next key
       }
     }
+  }
 
-    showError('Не удалось расшифровать. Возможно, у вас нет ключа отправителя');
-    outputEl.textContent = '';
-    setOutputLabel('');
-    updateStatus();
+  // 2. Try as INTRO: eph_pub = bytes[0:32], rest = bytes[32:]
+  if (couldBeIntro(bytes)) {
+    const { ephPub, payload: introPayload } = splitIntro(bytes);
+    try {
+      const decrypted = await decrypt(introPayload, myPrivateKey, ephPub, ephPub, myPublicKey, CLASS_INTRO);
+      if (decrypted.length < 33) throw new Error('payload too short');
+      const compMode = seedCompMode(bytes[32]); // seed starts at byte 32
+      const senderPub = decrypted.slice(0, 32);
+      const plaintext = decompress(decrypted.slice(32), compMode);
+      await handleDecodedIntro(senderPub, plaintext, _theme);
+      return;
+    } catch {
+      // Not an intro — fall through
+    }
+  }
+
+  // 3. Try as CONTACT: pub = bytes[0:32], check = bytes[32]
+  const contactPub = tryParseContact(bytes);
+  if (contactPub) {
+    await handleContactToken(contactPub);
     return;
   }
 
-  // Unknown class
-  showError('Неизвестный формат сообщения');
+  // Nothing worked — treat as plaintext to encode
+  await handleEncode(inputEl.value.trim());
 }
 
 function addSaveContactBtn(): void {
@@ -876,8 +855,8 @@ function tryParseInviteToken(text: string): Uint8Array | null {
 
   try {
     const decoded = base64urlToU8(clean);
-    if (decoded.length === 33 && headerClass(decoded[0]) === CLASS_CONTACT) {
-      return decoded.slice(1);
+    if (decoded.length === 33 && decoded[32] === contactCheckByte(decoded.slice(0, 32))) {
+      return decoded.slice(0, 32);
     }
     if (decoded.length === 32) {
       return decoded;
@@ -890,7 +869,7 @@ function tryParseInviteToken(text: string): Uint8Array | null {
 
 /** Generate a compact base64url invite token for sharing. */
 function makeInviteToken(publicKey: Uint8Array): string {
-  const wire = serializeWire({ header: makeHeader(CLASS_CONTACT, COMP_LITERAL), publicKey });
+  const wire = serializeContact(publicKey);
   return u8toBase64url(wire);
 }
 
@@ -903,7 +882,7 @@ function makeInviteLink(publicKey: Uint8Array): string {
 function showOwnContactToken(): void {
   const inviteLink = makeInviteLink(myPublicKey);
   const inviteToken = makeInviteToken(myPublicKey);
-  const tokenBytes = serializeWire({ header: makeHeader(CLASS_CONTACT, COMP_LITERAL), publicKey: myPublicKey });
+  const tokenBytes = serializeContact(myPublicKey);
   const stegoText = stegoEncode(tokenBytes, selectedTheme);
 
   outputEl.textContent = '';
