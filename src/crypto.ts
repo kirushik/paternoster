@@ -60,6 +60,19 @@ export async function importPrivateKey(raw: Uint8Array): Promise<CryptoKey> {
   return crypto.subtle.importKey('pkcs8', pkcs8 as BufferSource, { name: 'X25519' }, true, ['deriveBits']);
 }
 
+/** Derive X25519 public key from raw private key bytes (scalar mult against base point). */
+export async function derivePublicKey(rawPrivate: Uint8Array): Promise<Uint8Array> {
+  const privKey = await importPrivateKey(rawPrivate);
+  // X25519 base point: u-coordinate = 9 (little-endian)
+  const basePoint = new Uint8Array(32);
+  basePoint[0] = 9;
+  const basePub = await importPublicKey(basePoint);
+  const pubBytes = await crypto.subtle.deriveBits(
+    { name: 'X25519', public: basePub }, privKey, 256,
+  );
+  return new Uint8Array(pubBytes);
+}
+
 /** Derive a shared AES-GCM key from ECDH shared secret via HKDF. */
 async function deriveAESKey(sharedBits: ArrayBuffer): Promise<CryptoKey> {
   const keyMaterial = await crypto.subtle.importKey('raw', sharedBits, 'HKDF', false, ['deriveKey']);

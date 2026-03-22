@@ -4,7 +4,7 @@ Paternoster is a client-side steganographic encrypted messaging tool. The entire
 
 ## Why Single-File, No Server
 
-The threat model is platform surveillance — adversaries scanning communications for encrypted content. A server would be a single point of surveillance, seizure, or compromise. A self-contained HTML file can be shared person-to-person (Telegram, USB, email) and opened offline from disk. No server means no metadata logs, no traffic analysis surface, no infrastructure to maintain or trust.
+The threat model is platform surveillance — adversaries scanning communications for encrypted content. A server would be a single point of surveillance, seizure, or compromise. A self-contained HTML file can be shared person-to-person (Telegram, USB, email) and opened offline from disk. No server means no app-controlled metadata logs or infrastructure to trust. Transport channels (Telegram, email, etc.) still have their own metadata — the app eliminates its own metadata surface, not all metadata.
 
 The "download" button lets users save a clean copy to share further. The file IS the distribution mechanism. The download handler fetches the actual served page via `fetch(location.href)` to capture the complete single-file build (with inlined JS/CSS), falling back to a DOM snapshot only when running from `file://` protocol.
 

@@ -1,10 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { exportIdentity, importIdentity } from '../../src/identity';
+import { generateKeyPair } from '../../src/crypto';
 
 describe('identity export/import', () => {
-  const privateKey = new Uint8Array(32).fill(0xAA);
-  const publicKey = new Uint8Array(32).fill(0xBB);
+  let privateKey: Uint8Array;
+  let publicKey: Uint8Array;
   const passphrase = 'test-passphrase-123';
+
+  beforeAll(async () => {
+    const kp = await generateKeyPair();
+    privateKey = kp.privateKey;
+    publicKey = kp.publicKey;
+  });
 
   it('roundtrips with correct passphrase', async () => {
     const blob = await exportIdentity(privateKey, publicKey, passphrase);
@@ -32,5 +39,12 @@ describe('identity export/import', () => {
 
   it('throws on too-short blob', async () => {
     await expect(importIdentity('AAAA', passphrase)).rejects.toThrow('Неверный формат');
+  });
+
+  it('rejects blob with mismatched keypair', async () => {
+    // Export with real private key but fake public key
+    const fakePublic = new Uint8Array(32).fill(0xFF);
+    const blob = await exportIdentity(privateKey, fakePublic, passphrase);
+    await expect(importIdentity(blob, passphrase)).rejects.toThrow('ключи не совпадают');
   });
 });

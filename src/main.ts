@@ -606,6 +606,7 @@ async function handleExportIdentity(): Promise<void> {
 }
 
 async function handleImportIdentity(): Promise<void> {
+  if (!confirm('Внимание: восстановление заменит вашу текущую личность.\nВаши контакты сохранятся, но для них вы станете другим собеседником.\n\nПродолжить?')) return;
   const blob = prompt('Вставьте резервную копию:');
   if (!blob) return;
   const passphrase = prompt('Введите пароль:');
@@ -690,7 +691,10 @@ async function handleDownload(): Promise<void> {
 
   let html: string;
   try {
-    // Fetch the actual served file (the single-file build from vite-plugin-singlefile)
+    // Fetch the actual served file (the single-file build from vite-plugin-singlefile).
+    // Assumes location.href serves the final single-file HTML artifact.
+    // In dev mode this fetches the dev server's HTML (module scripts, not inlined) —
+    // the download feature is intended for the built dist/index.html served statically.
     const response = await fetch(location.href);
     html = await response.text();
   } catch {

@@ -4,7 +4,7 @@ End-to-end encryption using X25519 key exchange, AES-256-GCM authenticated encry
 
 ## Why Web Crypto Only
 
-The original codebase bundled noble-curves (5350 lines). Web Crypto API added X25519 support in Chrome 113, Firefox 128, Safari 17.4 — covering ~95% of users as of 2026. Dropping the library cut bundle size by 5KB (after minification) and eliminated a supply chain trust dependency. Browsers that don't support X25519 get a hard error in Russian with version requirements.
+The original codebase bundled noble-curves (5350 lines). Web Crypto API added X25519 support in Chrome 113, Firefox 128, Safari 17.4. Dropping the library cut bundle size by 5KB (after minification) and eliminated a supply chain trust dependency. Browsers that don't support X25519 get a hard error in Russian.
 
 ## Why X25519 + AES-GCM
 
@@ -16,11 +16,11 @@ X25519 (Curve25519 ECDH) provides 128-bit security with 32-byte keys — the sho
 
 **Platform surveillance.** Messages traverse monitored platforms (Telegram, VK, email). The adversary scans for encrypted content patterns. Encryption prevents reading; steganographic encoding prevents detection. The crypto doesn't protect against device seizure (keys are in localStorage) or a compromised browser.
 
-**Not in scope:** forward secrecy (static key pairs), sender authentication (we brute-force which contact's key decrypts).
+**Not in scope:** forward secrecy (static key pairs). Messages are not digitally signed. Sender identity is inferred from which contact key successfully decrypts; first-contact trust is TOFU unless users verify contact codes out-of-band.
 
-**Contact verification:** Each contact's public key has a short verification code (SHA-256 of public key, first 8 bytes, displayed as `XXXX XXXX XXXX XXXX`). Users can compare codes out-of-band to verify they're talking to the right person. This is shown on hover over contact pills and in the "Я" view.
+**Contact verification:** Each contact's public key has a short verification code (SHA-256 of public key, first 8 bytes, displayed as `XXXX XXXX XXXX XXXX`). This is a convenience code for quick human comparison (32 bits of collision resistance), not a formal cryptographic fingerprint — sufficient for honest verification, not for adversarial scenarios. Shown on hover over contact pills and in the "Я" view.
 
-**Identity backup:** Users can export their keypair as a passphrase-protected blob (PBKDF2-SHA256 100k iterations → AES-GCM). Import restores identity on another device/browser. See `src/identity.ts`.
+**Identity backup:** Users can export their keypair as a passphrase-protected blob (PBKDF2-SHA256 100k iterations → AES-GCM). Import restores identity on another device/browser and validates that the public key matches the private key. 100k PBKDF2-SHA256 iterations is an acceptable baseline; if bundle size constraints relax, consider migrating to Argon2id. See `src/identity.ts`.
 
 ## Wire Format
 

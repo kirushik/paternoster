@@ -7,7 +7,8 @@
  * Key derivation: PBKDF2-SHA256 (100 000 iterations) → AES-256-GCM
  */
 
-import { concatU8, u8toBase64url, base64urlToU8 } from './utils';
+import { concatU8, u8toBase64url, base64urlToU8, u8eq } from './utils';
+import { derivePublicKey } from './crypto';
 
 const PBKDF2_ITERATIONS = 100_000;
 const SALT_LENGTH = 16;
@@ -66,8 +67,14 @@ export async function importIdentity(
   if (plaintext.length !== 64) {
     throw new Error('Неверный формат резервной копии');
   }
-  return {
-    privateKey: plaintext.slice(0, 32),
-    publicKey: plaintext.slice(32),
-  };
+  const privateKey = plaintext.slice(0, 32);
+  const publicKey = plaintext.slice(32);
+
+  // Validate that the public key matches the private key
+  const derived = await derivePublicKey(privateKey);
+  if (!u8eq(derived, publicKey)) {
+    throw new Error('Повреждённая копия: ключи не совпадают');
+  }
+
+  return { privateKey, publicKey };
 }
