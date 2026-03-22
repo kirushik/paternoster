@@ -15,6 +15,32 @@ async function mockVoices(page: Page, langs: string[]): Promise<void> {
   }, langs);
 }
 
+/**
+ * Replace speechSynthesis.speak/cancel with test doubles.
+ *
+ * The fake voices created by mockVoices() are plain objects, not real
+ * SpeechSynthesisVoice instances. When tts.ts does `utterance.voice = voice`,
+ * Chromium throws a TypeError. To avoid this, the interceptor also overrides
+ * getVoices() to return [] so no voice is matched and the assignment is skipped.
+ * cancel() is also replaced so the native implementation doesn't interfere.
+ */
+async function mockSpeak(page: Page, onSpeak: string): Promise<void> {
+  await page.evaluate((body) => {
+    Object.defineProperty(window.speechSynthesis, 'cancel', {
+      value: () => {},
+      writable: true,
+      configurable: true,
+    });
+    // Return empty voices so tts.ts skips the utterance.voice assignment
+    window.speechSynthesis.getVoices = () => [];
+    Object.defineProperty(window.speechSynthesis, 'speak', {
+      value: new Function('u', body),
+      writable: true,
+      configurable: true,
+    });
+  }, onSpeak);
+}
+
 test.describe('TTS functionality', () => {
   test('TTS button exists', async ({ page }) => {
     await page.goto('/');
@@ -58,15 +84,8 @@ test.describe('TTS functionality', () => {
     await page.fill('#input', 'Тест');
     await page.waitForTimeout(300);
 
-    // Set up interceptor BEFORE clicking
-    await page.evaluate(() => {
-      (window as any).__ttsCallArgs = null;
-      const origGetVoices = window.speechSynthesis.getVoices;
-      window.speechSynthesis.speak = function(u: SpeechSynthesisUtterance) {
-        (window as any).__ttsCallArgs = { text: u.text, lang: u.lang };
-      };
-      window.speechSynthesis.getVoices = origGetVoices;
-    });
+    await page.evaluate(() => { (window as any).__ttsCallArgs = null; });
+    await mockSpeak(page, `window.__ttsCallArgs = { text: u.text, lang: u.lang };`);
 
     await page.click('#tts-btn');
     await page.waitForTimeout(200);
@@ -86,14 +105,8 @@ test.describe('TTS functionality', () => {
     await page.fill('#input', 'Test message');
     await page.waitForTimeout(300);
 
-    await page.evaluate(() => {
-      (window as any).__ttsLang = null;
-      const origGetVoices = window.speechSynthesis.getVoices;
-      window.speechSynthesis.speak = function(u: SpeechSynthesisUtterance) {
-        (window as any).__ttsLang = u.lang;
-      };
-      window.speechSynthesis.getVoices = origGetVoices;
-    });
+    await page.evaluate(() => { (window as any).__ttsLang = null; });
+    await mockSpeak(page, `window.__ttsLang = u.lang;`);
 
     await page.click('#tts-btn');
     await page.waitForTimeout(200);
@@ -111,14 +124,8 @@ test.describe('TTS functionality', () => {
     await page.fill('#input', 'Test');
     await page.waitForTimeout(300);
 
-    await page.evaluate(() => {
-      (window as any).__ttsLang = null;
-      const origGetVoices = window.speechSynthesis.getVoices;
-      window.speechSynthesis.speak = function(u: SpeechSynthesisUtterance) {
-        (window as any).__ttsLang = u.lang;
-      };
-      window.speechSynthesis.getVoices = origGetVoices;
-    });
+    await page.evaluate(() => { (window as any).__ttsLang = null; });
+    await mockSpeak(page, `window.__ttsLang = u.lang;`);
 
     await page.click('#tts-btn');
     await page.waitForTimeout(200);
@@ -135,14 +142,22 @@ test.describe('TTS functionality', () => {
     await page.fill('#input', 'Текст для чтения');
     await page.waitForTimeout(300);
 
-    // Mock speechSynthesis
+    // Full mock: speak sets speaking=true, cancel sets speaking=false
     await page.evaluate(() => {
       let speaking = false;
-      const origGetVoices = window.speechSynthesis.getVoices;
       Object.defineProperty(window.speechSynthesis, 'speaking', { get: () => speaking, configurable: true });
-      window.speechSynthesis.speak = () => { speaking = true; };
-      window.speechSynthesis.cancel = () => { speaking = false; };
-      window.speechSynthesis.getVoices = origGetVoices;
+      Object.defineProperty(window.speechSynthesis, 'cancel', {
+        value: () => { speaking = false; },
+        writable: true,
+        configurable: true,
+      });
+      // Return empty voices so tts.ts skips utterance.voice assignment
+      window.speechSynthesis.getVoices = () => [];
+      Object.defineProperty(window.speechSynthesis, 'speak', {
+        value: () => { speaking = true; },
+        writable: true,
+        configurable: true,
+      });
     });
 
     await page.click('#tts-btn');
