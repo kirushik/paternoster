@@ -1,4 +1,22 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+/** Wait for custom <dialog> to appear, fill fields by placeholder, click confirm. */
+async function fillDialogAndConfirm(
+  page: Page,
+  fieldValues: Record<string, string>,
+): Promise<void> {
+  const dialog = page.locator('dialog.app-dialog');
+  await dialog.waitFor({ state: 'visible' });
+
+  for (const [placeholder, value] of Object.entries(fieldValues)) {
+    await dialog
+      .locator(`input[placeholder="${placeholder}"], textarea[placeholder="${placeholder}"]`)
+      .fill(value);
+  }
+
+  await dialog.locator('.dialog-confirm').click();
+  await dialog.waitFor({ state: 'hidden' });
+}
 
 test.describe('contact management', () => {
   test('"Я" button shows invite link and contact token', async ({ page }) => {
@@ -21,7 +39,8 @@ test.describe('contact management', () => {
 
   test('invite link opens page and triggers contact import', async ({ browser }) => {
     // Alice generates invite link
-    const alicePage = await browser.newPage();
+    const aliceContext = await browser.newContext();
+    const alicePage = await aliceContext.newPage();
     await alicePage.goto('http://localhost:5199');
     await alicePage.waitForSelector('#input');
     await alicePage.click('[data-id="self"]');
@@ -30,21 +49,16 @@ test.describe('contact management', () => {
     const inviteLink = await alicePage.locator('.invite-link').getAttribute('href');
     expect(inviteLink).toBeTruthy();
 
-    // Bob opens the invite link
-    const bobPage = await browser.newPage();
-    // Pre-answer the prompt dialog
-    bobPage.on('dialog', async dialog => {
-      if (dialog.type() === 'prompt') {
-        await dialog.accept('Alice');
-      }
-    });
+    // Bob opens the invite link — custom dialog appears for naming the contact
+    const bobContext = await browser.newContext();
+    const bobPage = await bobContext.newPage();
     await bobPage.goto(inviteLink!);
     await bobPage.waitForSelector('#input');
-    await bobPage.waitForTimeout(500);
+
+    await fillDialogAndConfirm(bobPage, { 'Имя контакта': 'Alice' });
 
     // Bob should now have Alice as a contact
-    const contactText = await bobPage.locator('.contact-pill').allTextContents();
-    expect(contactText).toContain('Alice');
+    await expect(bobPage.locator('.contact-pill', { hasText: 'Alice' })).toBeVisible();
 
     // Hash should be cleared from URL
     const url = bobPage.url();
@@ -52,23 +66,23 @@ test.describe('contact management', () => {
 
     await alicePage.close();
     await bobPage.close();
+    await aliceContext.close();
+    await bobContext.close();
   });
 
   test('"+" button adds contact from hex key', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('#input');
 
-    const dialogValues = ['AB'.repeat(32), 'Тестовый контакт'];
-    let dialogIdx = 0;
-    page.on('dialog', async dialog => {
-      await dialog.accept(dialogValues[dialogIdx++]);
+    await page.click('[data-id="add"]');
+
+    // Custom dialog with two fields: token/key and name
+    await fillDialogAndConfirm(page, {
+      'Код приглашения или ключ': 'AB'.repeat(32),
+      'Имя контакта': 'Тестовый контакт',
     });
 
-    await page.click('[data-id="add"]');
-    await page.waitForTimeout(300);
-
-    const pills = await page.locator('.contact-pill').allTextContents();
-    expect(pills).toContain('Тестовый контакт');
+    await expect(page.locator('.contact-pill', { hasText: 'Тестовый контакт' })).toBeVisible();
   });
 });
 
@@ -77,14 +91,12 @@ test.describe('contact interaction', () => {
     await page.goto('/');
     await page.waitForSelector('#input');
 
-    // Add a contact first
-    const dialogValues = ['CD'.repeat(32), 'Bob'];
-    let dialogIdx = 0;
-    page.on('dialog', async dialog => {
-      await dialog.accept(dialogValues[dialogIdx++]);
-    });
+    // Add a contact via "+" button
     await page.click('[data-id="add"]');
-    await page.waitForTimeout(300);
+    await fillDialogAndConfirm(page, {
+      'Код приглашения или ключ': 'CD'.repeat(32),
+      'Имя контакта': 'Bob',
+    });
 
     // Type a message with "Я" selected
     await page.click('[data-id="self"]');

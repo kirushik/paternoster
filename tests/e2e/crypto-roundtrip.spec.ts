@@ -1,9 +1,30 @@
 import { test, expect, type Page } from '@playwright/test';
 
+/** Wait for custom <dialog> to appear, fill fields by placeholder, click confirm. */
+async function fillDialogAndConfirm(
+  page: Page,
+  fieldValues: Record<string, string>,
+): Promise<void> {
+  const dialog = page.locator('dialog.app-dialog');
+  await dialog.waitFor({ state: 'visible' });
+
+  for (const [placeholder, value] of Object.entries(fieldValues)) {
+    await dialog
+      .locator(`input[placeholder="${placeholder}"], textarea[placeholder="${placeholder}"]`)
+      .fill(value);
+  }
+
+  await dialog.locator('.dialog-confirm').click();
+  await dialog.waitFor({ state: 'hidden' });
+}
+
 test.describe('two-party message exchange', () => {
   test('Alice and Bob exchange messages end-to-end', async ({ browser }) => {
-    const alicePage = await browser.newPage();
-    const bobPage = await browser.newPage();
+    const aliceContext = await browser.newContext();
+    const alicePage = await aliceContext.newPage();
+
+    const bobContext = await browser.newContext();
+    const bobPage = await bobContext.newPage();
 
     await alicePage.goto('http://localhost:5199');
     await bobPage.goto('http://localhost:5199');
@@ -16,47 +37,40 @@ test.describe('two-party message exchange', () => {
     const aliceToken = await alicePage.locator('.invite-token').textContent();
     expect(aliceToken).toBeTruthy();
 
-    // Step 2: Bob pastes Alice's token to add her as contact
-    bobPage.on('dialog', async dialog => {
-      if (dialog.message().includes('контакт')) {
-        await dialog.accept('Alice');
-      }
-    });
+    // Step 2: Bob pastes Alice's token to add her as contact (custom dialog)
     await bobPage.fill('#input', aliceToken!);
-    await bobPage.waitForTimeout(500);
+    await fillDialogAndConfirm(bobPage, { 'Имя контакта': 'Alice' });
 
     // Verify Alice appears in Bob's contacts
-    const bobContacts = await bobPage.locator('.contact-pill').allTextContents();
-    expect(bobContacts).toContain('Alice');
+    await expect(bobPage.locator('.contact-pill', { hasText: 'Alice' })).toBeVisible();
 
     // Step 3: Bob selects Alice and sends a message
-    await bobPage.click(`.contact-pill:text("Alice")`);
-    await bobPage.waitForTimeout(200);
+    await bobPage.locator('.contact-pill', { hasText: 'Alice' }).click();
     await bobPage.fill('#input', 'Привет, Алиса!');
-    await bobPage.waitForTimeout(500);
+    await bobPage.waitForTimeout(300);
     const bobOutput = await bobPage.textContent('#output');
     expect(bobOutput).toBeTruthy();
     expect(bobOutput!.length).toBeGreaterThan(10);
 
     // Step 4: Alice pastes Bob's encoded message
-    // Bob's message includes sender key (first message), so Alice will discover Bob
-    alicePage.on('dialog', async dialog => {
-      if (dialog.message().includes('контакт')) {
-        await dialog.accept('Bob');
-      }
-    });
+    // Bob's message includes sender key (MSG_INTRODUCTION), so Alice will discover Bob
     await alicePage.fill('#input', bobOutput!);
-    await alicePage.waitForTimeout(500);
+    await alicePage.waitForTimeout(300);
 
     // Alice should see the decrypted message
-    const aliceOutput = await alicePage.textContent('#output');
-    expect(aliceOutput).toBe('Привет, Алиса!');
+    await expect(alicePage.locator('#output')).toHaveText('Привет, Алиса!');
 
-    // Step 5: Alice should now have Bob as a contact (auto-discovered via sender key)
-    const aliceContacts = await alicePage.locator('.contact-pill').allTextContents();
-    expect(aliceContacts).toContain('Bob');
+    // Alice sees "save contact" button for unknown sender
+    await expect(alicePage.locator('#save-contact-btn')).toBeVisible();
+    await alicePage.click('#save-contact-btn');
+    await fillDialogAndConfirm(alicePage, { 'Имя контакта': 'Bob' });
+
+    // Step 5: Alice should now have Bob as a contact
+    await expect(alicePage.locator('.contact-pill', { hasText: 'Bob' })).toBeVisible();
 
     await alicePage.close();
     await bobPage.close();
+    await aliceContext.close();
+    await bobContext.close();
   });
 });
