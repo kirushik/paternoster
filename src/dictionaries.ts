@@ -128,12 +128,13 @@ const BUKHAYU: Theme = {
 
 const PATER: Theme = {
   id: 'PATER',
-  model: 64,
+  model: 4096,
   rand: 0.8,
   lang: 'la',
-  tab1: [' et ', ' ac ', ', ', ' sed '],
-  tab2: ['. Qui ', '. Non ', '? At ', ' — '],
-  tab3: (
+  tab1: [' et ', ' ac ', ' sed ', ' atque ', ' nam ', ' enim ', ' autem ', ' vero '],
+  tab2: ['. Quia ', '. Quoniam ', '. Ergo ', '. Igitur ', '. Ubi ', '. Quod ', '. Cum ', '. Nisi '],
+  words: (
+    // original 64
     'Dominus Deus spiritus sanctus peccator angelus diabolus caelum '
     + 'infernus pax bellum rex sacerdos propheta apostolus fidelis '
     + 'spes caritas gratia misericordia iustitia veritas lux tenebrae '
@@ -141,8 +142,46 @@ const PATER: Theme = {
     + 'resurrectio paenitentia confessio communio benedictio maledictio laudat orat '
     + 'cantat adorat servit regnat salvat condemnat absolvit iudicat '
     + 'creat liberat sanctificat illuminat patitur resurgit ascendit descendit '
-    + 'praedicat docet amat timet sperat credit vivit moritur'
-  ).split(' '),
+    + 'praedicat docet amat timet sperat credit vivit moritur '
+    // divine names and titles
+    + 'Christus Creator Salvator Redemptor Paraclitus Mediator Filius Pater Sponsus Verbum Trinitas Maria '
+    // heavenly beings and saints
+    + 'archangelus daemon martyr confessor eremita monachus presbyter episcopus diaconus pontifex frater soror '
+    // more people and roles
+    + 'levita vidua peregrinus catechumenus ancilla servus populus gentilis '
+    // places
+    + 'templum altare paradisum gehenna sepulcrum thronus regnum mundus '
+    // time and eschatology
+    + 'saeculum aeternum initium finis principium adventus parousia iudicium '
+    // sacred objects
+    + 'panis vinum aqua oleum incensum calyx hostia vestimentum pallium corona '
+    // virtues
+    + 'fides pietas humilitas patientia oboedientia castitas prudentia fortitudo temperantia sapientia '
+    // body and soul
+    + 'anima corpus cor mens oculus auris manus pes '
+    // sin and suffering
+    + 'peccatum culpa delictum tentatio tribulatio persecutio passio dolor poena maeror '
+    // glory and sacred
+    + 'gloria honor virtus mysterium signum miraculum testimonium promissio prophetia scriptura '
+    // law and covenant
+    + 'lex mandatum praeceptum foedus hereditas testamentum '
+    // verbs — protection and care
+    + 'custodiat protegat defendat nutriat gubernet benedicat consecrat offert immolat purificat '
+    // verbs — mercy and healing
+    + 'donat concedit remittit parcit miseretur consolatur sustentat reficit visitat sanat '
+    // verbs — triumph and sacrifice
+    + 'vincit superat triumphat tollit portat sustinet crucifigit sepellit resuscitat redimit '
+    // verbs — calling and gathering
+    + 'mittit vocat elegit congregat unit dividit iungit separat aperit claudit '
+    // verbs — praise and transformation
+    + 'magnificat exaltat humiliat convertit renovat confirmat roborat perficit complet implet '
+    // verbs — more actions
+    + 'inclinat respicit exaudit condonat ignoscit custodit tuetur mundat abluit aspergit '
+    + 'suscitat erigit sustollit deducit perducit commendat tradit accipit tribuit largitur '
+    // more nouns — worship and nature
+    + 'gaudium laetitia requies silentium oratio psalmus hymnus canticum sacrificium oblatio '
+    + 'tabernaculum lucerna fons rivus lignum vitis palma lilium rosa stella'
+  ),
 } as const;
 
 // 1024 curated single-codepoint emoji from supplementary Unicode blocks.

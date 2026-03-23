@@ -13,11 +13,11 @@ describe('theme table sizes', () => {
     expect(t.words!.split(' ')).toHaveLength(256);
   });
 
-  it('PATER has correct table sizes (model 64)', () => {
+  it('PATER has 16 connectors and 256 words (model 4096)', () => {
     const t = THEME_MAP.get('PATER')!;
-    expect(t.tab1).toHaveLength(4);
-    expect(t.tab2).toHaveLength(4);
-    expect(t.tab3).toHaveLength(64);
+    expect(t.tab1).toHaveLength(8);
+    expect(t.tab2).toHaveLength(8);
+    expect(t.words!.split(' ')).toHaveLength(256);
   });
 
   it('РОССИЯ has correct table sizes (model 16)', () => {
