@@ -153,29 +153,40 @@ function decoder64(s: string, tab: Theme): Uint8Array | null {
   return bytes;
 }
 
-// ── Model 1024: 10-bit emoji lookup ─────────────────────
+// ── Model 1024: 10-bit bit-stream emoji lookup ──────────
+// Bit stream layout: [padCount:4][data bits][zero padding]
+// padCount (0-9) = number of trailing zero bits in the last token.
+// Tokens = ceil((4 + data.length*8) / 10).
 
 function encoder1024(b: Uint8Array, tab: Theme): string {
   const chars = [...tab.chars!];
   const seps = tab.sep ?? [' '];
-  // Prepend padding count byte, pad to 5-byte alignment
-  const pad = (5 - ((b.length + 1) % 5)) % 5;
-  const padded = new Uint8Array(1 + b.length + pad);
-  padded[0] = pad;
-  padded.set(b, 1);
 
+  const totalNeeded = 4 + b.length * 8;
+  const numTokens = Math.ceil(totalNeeded / 10);
+  const padCount = numTokens * 10 - totalNeeded;
+
+  let buf = padCount; // 4-bit header
+  let bits = 4;
   let o = '';
-  for (let i = 0; i < padded.length; i += 5) {
-    const b0 = padded[i], b1 = padded[i + 1], b2 = padded[i + 2], b3 = padded[i + 3], b4 = padded[i + 4];
-    o += chars[(b0 << 2) | (b1 >> 6)];
-    o += seps[Math.floor(Math.random() * seps.length)];
-    o += chars[((b1 & 0x3F) << 4) | (b2 >> 4)];
-    o += seps[Math.floor(Math.random() * seps.length)];
-    o += chars[((b2 & 0x0F) << 6) | (b3 >> 2)];
-    o += seps[Math.floor(Math.random() * seps.length)];
-    o += chars[((b3 & 0x03) << 8) | b4];
+
+  for (let i = 0; i < b.length; i++) {
+    buf = (buf << 8) | b[i];
+    bits += 8;
+    while (bits >= 10) {
+      bits -= 10;
+      o += chars[(buf >> bits) & 0x3FF];
+      o += seps[Math.floor(Math.random() * seps.length)];
+      buf &= (1 << bits) - 1;
+    }
+  }
+
+  // Emit final token with remaining bits + zero padding
+  if (bits > 0) {
+    o += chars[(buf << (10 - bits)) & 0x3FF];
     o += seps[Math.floor(Math.random() * seps.length)];
   }
+
   return o;
 }
 
@@ -198,23 +209,35 @@ function decoder1024(s: string, tab: Theme): Uint8Array | null {
     tokens.push(idx);
   }
 
-  if (tokens.length === 0 || tokens.length % 4 !== 0) return null;
+  if (tokens.length === 0) return null;
 
-  // Decode 4 tokens → 5 bytes
-  const bytes: number[] = [];
-  for (let i = 0; i < tokens.length; i += 4) {
-    const t0 = tokens[i], t1 = tokens[i + 1], t2 = tokens[i + 2], t3 = tokens[i + 3];
-    bytes.push((t0 >> 2) & 0xFF);
-    bytes.push(((t0 & 0x03) << 6) | (t1 >> 4));
-    bytes.push(((t1 & 0x0F) << 4) | (t2 >> 6));
-    bytes.push(((t2 & 0x3F) << 2) | (t3 >> 8));
-    bytes.push(t3 & 0xFF);
+  // First 4 bits = pad count (trailing zero bits in last token)
+  const padCount = (tokens[0] >> 6) & 0xF;
+  if (padCount > 9) return null;
+
+  const totalBits = tokens.length * 10;
+  const dataBits = totalBits - 4 - padCount;
+  if (dataBits < 0 || dataBits % 8 !== 0) return null;
+  const dataBytes = dataBits / 8;
+
+  // Reassemble bytes from bit stream, skipping 4-bit header
+  let buf = tokens[0] & 0x3F;
+  let bits = 6;
+  let tokenIdx = 1;
+  const result = new Uint8Array(dataBytes);
+
+  for (let i = 0; i < dataBytes; i++) {
+    while (bits < 8) {
+      if (tokenIdx >= tokens.length) return null;
+      buf = (buf << 10) | tokens[tokenIdx++];
+      bits += 10;
+    }
+    bits -= 8;
+    result[i] = (buf >> bits) & 0xFF;
+    buf &= (1 << bits) - 1;
   }
 
-  // First byte is padding count
-  const pad = bytes[0];
-  if (pad > 4) return null;
-  return new Uint8Array(bytes.slice(1, bytes.length - pad));
+  return result;
 }
 
 // ── Model 4096: 12-bit encoding ─────────────────────────

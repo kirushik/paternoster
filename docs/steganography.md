@@ -17,9 +17,9 @@ Each model packs bytes into tokens differently. Higher model numbers = more toke
 | 1024 | 10 | 4 tokens/5 bytes | 10-bit groups from a string of 1024 emoji chars | 🙂 (emoji) |
 | 4096 | 12 | 2 tokens/3 bytes | 12-bit pairs; flat mode (CJK offsets) or structured mode (16 connectors × 256 words) | КИТАЙ (flat), БОЖЕ, PATER (structured) |
 
-**Model 4096 is the most compact** (2 tokens per 3 bytes, ~33% shorter than 1:1). It has two modes: *flat* (sequential Unicode codepoints from a base, used by КИТАЙ) and *structured* (16 connectors × 256 words producing prose, used by БОЖЕ and PATER). Model 1024 is also compact (4 tokens per 5 bytes, ~20% shorter). Model 16 needs 2 tokens per byte.
+**Model 4096 is the most compact** (2 tokens per 3 bytes, ~33% shorter than 1:1). It has two modes: *flat* (sequential Unicode codepoints from a base, used by КИТАЙ) and *structured* (16 connectors × 256 words producing prose, used by БОЖЕ and PATER). Model 1024 is also compact (`ceil((4 + N*8) / 10)` tokens for N bytes, ~20% shorter). Model 16 needs 2 tokens per byte.
 
-Models 1024 and 4096 prepend a 1-byte padding count before encoding. The input is padded to the chunk boundary (5 bytes for 1024, 3 bytes for 4096). The decoder strips the padding using this count byte.
+Model 1024 uses **bit-stream encoding**: a 4-bit header (trailing pad bit count, 0–9) followed by data bits, packed continuously into 10-bit tokens. This avoids the chunk-alignment waste of fixed-size grouping. Model 4096 prepends a 1-byte padding count and pads to its 3-byte chunk boundary.
 
 ## Randomization (the `rand` field)
 

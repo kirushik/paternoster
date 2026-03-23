@@ -16,10 +16,8 @@ function tokenCount(theme: ThemeId, bytes: number): number {
     case 0:
     case 16:
       return bytes * 2;
-    case 1024: {
-      const pad = (5 - ((bytes + 1) % 5)) % 5;
-      return ((1 + bytes + pad) / 5) * 4;
-    }
+    case 1024:
+      return Math.ceil((4 + bytes * 8) / 10);
     case 4096: {
       const pad = (3 - ((bytes + 1) % 3)) % 3;
       return ((1 + bytes + pad) / 3) * 2;
