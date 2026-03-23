@@ -14,28 +14,27 @@ Each model packs bytes into tokens differently. Higher model numbers = more toke
 |---|---|---|---|---|
 | 0 | 4 | 2 tokens/byte | Hex digits (identity transform) | hex |
 | 16 | 4 | 2 tokens/byte | Each nibble → one of 16 tokens from tab1/tab2 | РОССИЯ, СССР, БУХАЮ |
-| 64 | 2+6 | 2 tokens/byte | Low 2 bits → connector (tab1/tab2), high 6 bits → word (tab3) | БОЖЕ, PATER |
 | 1024 | 10 | 4 tokens/5 bytes | 10-bit groups from a string of 1024 emoji chars | 🙂 (emoji) |
-| 4096 | 12 | 2 tokens/3 bytes | 12-bit pairs as Unicode offsets from base codepoint | КИТАЙ |
+| 4096 | 12 | 2 tokens/3 bytes | 12-bit pairs; flat mode (CJK offsets) or structured mode (16 connectors × 256 words) | КИТАЙ (flat), БОЖЕ, PATER (structured) |
 
-**Model 4096 is the most compact** (2 tokens per 3 bytes, ~33% shorter than 1:1). Model 1024 is also compact (4 tokens per 5 bytes, ~20% shorter). Models 16 and 64 need 2 tokens per byte.
+**Model 4096 is the most compact** (2 tokens per 3 bytes, ~33% shorter than 1:1). It has two modes: *flat* (sequential Unicode codepoints from a base, used by КИТАЙ) and *structured* (16 connectors × 256 words producing prose, used by БОЖЕ and PATER). Model 1024 is also compact (4 tokens per 5 bytes, ~20% shorter). Model 16 needs 2 tokens per byte.
 
 Models 1024 and 4096 prepend a 1-byte padding count before encoding. The input is padded to the chunk boundary (5 bytes for 1024, 3 bytes for 4096). The decoder strips the padding using this count byte.
 
 ## Randomization (the `rand` field)
 
-Models 16 and 64 randomly switch between `tab1` and `tab2` for the same nibble/bit-group value. Both tables decode to the same value — the randomness is cosmetic. It prevents the output from looking like a repeating pattern. The `rand` parameter (0–1) controls how often switching happens. Higher = more consistent table usage; lower = more varied output.
+Model 16 randomly switches between `tab1` and `tab2` for the same nibble value. Both tables decode to the same byte — the randomness is cosmetic. It prevents the output from looking like a repeating pattern. The `rand` parameter (0–1) controls how often switching happens. Higher = more consistent table usage; lower = more varied output.
 
-Models 1024 and 4096 insert cosmetic spaces between tokens controlled by `rand`.
+Model 4096 flat mode inserts cosmetic spaces between token pairs controlled by `rand`. Model 1024 emits tokens without separators.
 
 ## Adding a New Theme
 
-1. Choose a model (16 for word-based, 64 for connector+word, 1024 for emoji/symbol, 4096 for sequential Unicode ranges).
+1. Choose a model (16 for word-based, 1024 for emoji/symbol, 4096 for sequential Unicode ranges or connector+word prose).
 2. Create the token tables:
    - Model 16: tab1/tab2 with exactly 16 entries each
-   - Model 64: tab1/tab2 with 4 entries, tab3 with 64 entries
    - Model 1024: a `chars` string of exactly 1024 single-codepoint characters
-   - Model 4096: a `base` codepoint with 4096 sequential characters available
+   - Model 4096 flat: a `base` codepoint with 4096 sequential characters available
+   - Model 4096 structured: tab1 (8 connectors) + tab2 (8 connectors) = 16 connectors, plus `words` (256 space-delimited words)
 3. **All tokens within a table must be unique after FE0F normalization.** The dictionary tests enforce this.
 4. **Tokens must be prefix-free within their lookup table.** No token can be a prefix of another token in the same table. The greedy decoder depends on this.
 5. **Emoji tokens must not overlap with other themes.** РОССИЯ and СССР tab1 emoji must be disjoint from each other and from the 🙂 chars string. The dictionary tests enforce this.
@@ -64,5 +63,5 @@ Output must survive copy-paste across Telegram, VK, WhatsApp, Instagram, Twitter
 
 - Auto-detection iterates `THEMES` array in order, trying each decoder. First theme whose decoder successfully parses the input wins. Themes are ordered by token-set distinctiveness (most unique first) to minimize false-positive attempts.
 - Model 0 (hex) tries to decode any text as hex. That's why it must be last in the array.
-- Encoder output is non-deterministic (random tab switching, random separators). The decoder accepts output from any randomization. You can't compare two encodings of the same data for equality.
+- Encoder output is non-deterministic (random tab switching in model 16, random cosmetic spaces in model 4096 flat, random connector choice in model 4096 structured). The decoder accepts output from any randomization. You can't compare two encodings of the same data for equality.
 - Model 1024/4096 prepend a padding count byte. Empty input still produces tokens (encoding the padding byte).

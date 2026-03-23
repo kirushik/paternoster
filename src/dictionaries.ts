@@ -211,7 +211,7 @@ const EMOJI: Theme = {
   rand: 0.7,
   lang: 'en',
   chars: EMOJI_CHARS,
-  sep: [' ', '', ' ', ''],
+  sep: [''],
 } as const;
 
 const HEX: Theme = {
