@@ -88,7 +88,7 @@ function decoder16(s: string, tab: Theme): Uint8Array | null {
   return bytes;
 }
 
-// ── Model 64: 2-bit + 6-bit lookup (БОЖЕ, PATER) ───────
+// ── Model 64: 2-bit + 6-bit lookup (PATER) ─────────────
 
 function encoder64(b: Uint8Array, tab: Theme): string {
   const t1 = tab.tab1!;
@@ -217,10 +217,11 @@ function decoder1024(s: string, tab: Theme): Uint8Array | null {
   return new Uint8Array(bytes.slice(1, bytes.length - pad));
 }
 
-// ── Model 4096: 12-bit base offset (КИТАЙ) ──────────────
+// ── Model 4096: 12-bit encoding ─────────────────────────
+// Flat mode (КИТАЙ): base+offset sequential CJK characters.
+// Structured mode (БОЖЕ): 16 connectors (4 bits) × 256 words (8 bits).
 
 function encoder4096(b: Uint8Array, tab: Theme): string {
-  const base = tab.base!;
   // Prepend padding count byte, pad to 3-byte alignment
   const pad = (3 - ((b.length + 1) % 3)) % 3;
   const padded = new Uint8Array(1 + b.length + pad);
@@ -228,35 +229,105 @@ function encoder4096(b: Uint8Array, tab: Theme): string {
   padded.set(b, 1);
 
   let o = '';
-  for (let i = 0; i < padded.length; i += 3) {
-    const val24 = (padded[i] << 16) | (padded[i + 1] << 8) | padded[i + 2];
-    o += String.fromCodePoint(base + ((val24 >> 12) & 0xFFF));
-    o += String.fromCodePoint(base + (val24 & 0xFFF));
-    if (Math.random() > tab.rand) o += ' ';
+  if (tab.base !== undefined) {
+    // Flat mode: sequential CJK characters
+    const base = tab.base;
+    for (let i = 0; i < padded.length; i += 3) {
+      const val24 = (padded[i] << 16) | (padded[i + 1] << 8) | padded[i + 2];
+      o += String.fromCodePoint(base + ((val24 >> 12) & 0xFFF));
+      o += String.fromCodePoint(base + (val24 & 0xFFF));
+      if (Math.random() > tab.rand) o += ' ';
+    }
+  } else {
+    // Structured mode: connector + word pairs
+    // First pair's connector is always index 0 (padding byte is 0-2,
+    // so top 4 bits of first 12-bit value are always 0). We skip it
+    // and capitalize the first word for a proper sentence start.
+    const connectors = [...tab.tab1!, ...tab.tab2!]; // 16 connectors
+    const words = tab.words!.split(' ');
+    let first = true;
+    for (let i = 0; i < padded.length; i += 3) {
+      const val24 = (padded[i] << 16) | (padded[i + 1] << 8) | padded[i + 2];
+      const hi = (val24 >> 12) & 0xFFF;
+      const lo = val24 & 0xFFF;
+      if (first) {
+        const w = words[hi & 0xFF];
+        o += w[0].toUpperCase() + w.slice(1);
+        first = false;
+      } else {
+        o += connectors[(hi >> 8) & 0xF] + words[hi & 0xFF];
+      }
+      o += connectors[(lo >> 8) & 0xF] + words[lo & 0xFF];
+    }
   }
   return o;
 }
 
 function decoder4096(s: string, tab: Theme): Uint8Array | null {
-  const base = tab.base!;
-  const clean = s.replace(/ +/g, '');
-  const tokens: number[] = [];
-  for (const ch of clean) {
-    const code = ch.codePointAt(0)!;
-    if (code < base || code >= base + 4096) break;
-    tokens.push(code - base);
+  const tokens12: number[] = [];
+
+  if (tab.base !== undefined) {
+    // Flat mode: sequential CJK characters
+    const base = tab.base;
+    const clean = s.replace(/ +/g, '');
+    for (const ch of clean) {
+      const code = ch.codePointAt(0)!;
+      if (code < base || code >= base + 4096) break;
+      tokens12.push(code - base);
+    }
+  } else {
+    // Structured mode: parse connector+word pairs
+    const connectors = [...tab.tab1!, ...tab.tab2!];
+    const connectorLookup = new Map<string, number>();
+    for (let i = 0; i < connectors.length; i++) {
+      const frag = connectors[i].trim().replace(/^[.,;:!?—–\-]+|[.,;:!?—–\-]+$/g, '').trim();
+      connectorLookup.set(frag, i);
+    }
+    const words = tab.words!.split(' ');
+    const wordLookup = new Map<string, number>();
+    for (let i = 0; i < words.length; i++) {
+      wordLookup.set(words[i], i);
+    }
+
+    const rawTokens = s.split(/\s+/);
+    let pendingConnector = -1;
+    let firstWord = true;
+    for (const raw of rawTokens) {
+      const clean = raw.replace(/^[.,;:!?—–\-]+|[.,;:!?—–\-]+$/g, '');
+      if (clean.length === 0) continue;
+      const ci = connectorLookup.get(clean);
+      if (ci !== undefined) { pendingConnector = ci; continue; }
+      // Try word lookup (exact match, then lowercase-first for capitalized start)
+      let wi = wordLookup.get(clean);
+      if (wi === undefined && clean.length > 0) {
+        wi = wordLookup.get(clean[0].toLowerCase() + clean.slice(1));
+      }
+      if (wi !== undefined) {
+        if (firstWord) {
+          // First word has implicit connector 0
+          tokens12.push(wi); // (0 << 8) | wi
+          firstWord = false;
+        } else {
+          if (pendingConnector < 0) return null;
+          tokens12.push((pendingConnector << 8) | wi);
+          pendingConnector = -1;
+        }
+        continue;
+      }
+      break; // unknown token
+    }
   }
-  if (tokens.length === 0 || tokens.length % 2 !== 0) return null;
+
+  if (tokens12.length === 0 || tokens12.length % 2 !== 0) return null;
 
   const bytes: number[] = [];
-  for (let i = 0; i < tokens.length; i += 2) {
-    const val24 = (tokens[i] << 12) | tokens[i + 1];
+  for (let i = 0; i < tokens12.length; i += 2) {
+    const val24 = (tokens12[i] << 12) | tokens12[i + 1];
     bytes.push((val24 >> 16) & 0xFF);
     bytes.push((val24 >> 8) & 0xFF);
     bytes.push(val24 & 0xFF);
   }
 
-  // First byte is padding count
   const pad = bytes[0];
   if (pad > 2) return null;
   return new Uint8Array(bytes.slice(1, bytes.length - pad));
@@ -279,10 +350,10 @@ export function stegoEncode(bytes: Uint8Array, themeId: ThemeId): string {
 /** Auto-detect theme and decode steganographic text to bytes. */
 export function stegoDecode(text: string): DecodeResult | null {
   for (const theme of THEMES) {
-    // Quick rejection heuristic for base-offset themes
-    if (theme.model === 4096) {
+    // Quick rejection heuristic for flat base-offset themes (e.g. КИТАЙ)
+    if (theme.model === 4096 && theme.base !== undefined) {
       const firstChar = text.codePointAt(0);
-      if (firstChar === undefined || firstChar < theme.base! || firstChar >= theme.base! + 4096) continue;
+      if (firstChar === undefined || firstChar < theme.base || firstChar >= theme.base + 4096) continue;
     }
 
     const bytes = DECODERS[theme.model](text, theme);

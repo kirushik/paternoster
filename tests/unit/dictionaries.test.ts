@@ -6,11 +6,11 @@ function stripFE0F(s: string): string {
 }
 
 describe('theme table sizes', () => {
-  it('БОЖЕ has correct table sizes (model 64)', () => {
+  it('БОЖЕ has 16 connectors and 256 words (model 4096)', () => {
     const t = THEME_MAP.get('БОЖЕ')!;
-    expect(t.tab1).toHaveLength(4);
-    expect(t.tab2).toHaveLength(4);
-    expect(t.tab3).toHaveLength(64);
+    expect(t.tab1).toHaveLength(8);
+    expect(t.tab2).toHaveLength(8);
+    expect(t.words!.split(' ')).toHaveLength(256);
   });
 
   it('PATER has correct table sizes (model 64)', () => {

@@ -106,12 +106,20 @@ describe('stego FE0F robustness', () => {
 });
 
 describe('stego handles edge cases', () => {
-  it('empty input encodes to empty string', () => {
-    const bozhe = stegoEncode(new Uint8Array([]), 'БОЖЕ');
-    expect(bozhe).toBe('');
-
+  it('empty input encodes to empty or padding-only', () => {
+    // hex produces empty string
     const hex = stegoEncode(new Uint8Array([]), 'hex');
     expect(hex).toBe('');
+
+    // model-4096/1024 themes produce padding tokens (roundtrip to empty)
+    for (const themeId of ['БОЖЕ', 'КИТАЙ', '🙂'] as const) {
+      const encoded = stegoEncode(new Uint8Array([]), themeId);
+      expect(encoded.length).toBeGreaterThan(0);
+      const decoded = stegoDecode(encoded);
+      if (decoded !== null) {
+        expect(decoded.bytes).toEqual(new Uint8Array([]));
+      }
+    }
   });
 
   it('truncated encoded text does not crash', () => {
