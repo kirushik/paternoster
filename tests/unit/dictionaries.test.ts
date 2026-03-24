@@ -6,18 +6,18 @@ function stripFE0F(s: string): string {
 }
 
 describe('theme table sizes', () => {
-  it('БОЖЕ has correct table sizes (model 64)', () => {
+  it('БОЖЕ has 16 connectors and 256 words (model 4096)', () => {
     const t = THEME_MAP.get('БОЖЕ')!;
-    expect(t.tab1).toHaveLength(4);
-    expect(t.tab2).toHaveLength(4);
-    expect(t.tab3).toHaveLength(64);
+    expect(t.tab1).toHaveLength(8);
+    expect(t.tab2).toHaveLength(8);
+    expect(t.words!.split(' ')).toHaveLength(256);
   });
 
-  it('PATER has correct table sizes (model 64)', () => {
+  it('PATER has 16 connectors and 256 words (model 4096)', () => {
     const t = THEME_MAP.get('PATER')!;
-    expect(t.tab1).toHaveLength(4);
-    expect(t.tab2).toHaveLength(4);
-    expect(t.tab3).toHaveLength(64);
+    expect(t.tab1).toHaveLength(8);
+    expect(t.tab2).toHaveLength(8);
+    expect(t.words!.split(' ')).toHaveLength(256);
   });
 
   it('РОССИЯ has correct table sizes (model 16)', () => {
@@ -38,12 +38,12 @@ describe('theme table sizes', () => {
     expect(t.tab2).toHaveLength(16);
   });
 
-  it('🙂 has 256 emoji entries (model 256)', () => {
+  it('🙂 has 1024 emoji chars (model 1024)', () => {
     const t = THEME_MAP.get('🙂')!;
-    expect(t.tab256).toHaveLength(256);
+    expect([...t.chars!]).toHaveLength(1024);
   });
 
-  it('КИТАЙ has base set (model 1)', () => {
+  it('КИТАЙ has base set (model 4096)', () => {
     const t = THEME_MAP.get('КИТАЙ')!;
     expect(t.base).toBe(0x4E00);
   });
@@ -75,9 +75,10 @@ describe('token uniqueness', () => {
         checkUniqueness(theme.tab3!, `${theme.id}.tab3`);
       });
     }
-    if (theme.tab256) {
-      it(`${theme.id} tab256 tokens are unique`, () => {
-        checkUniqueness(theme.tab256!, `${theme.id}.tab256`);
+    if (theme.chars) {
+      it(`${theme.id} chars tokens are unique`, () => {
+        const chars = [...theme.chars!];
+        checkUniqueness(chars, `${theme.id}.chars`);
       });
     }
   }
@@ -124,13 +125,41 @@ describe('prefix-free property', () => {
       });
     }
 
-    // For model-256: tab256 must be prefix-free
-    if (theme.model === 256 && theme.tab256) {
-      it(`${theme.id} tab256 is prefix-free`, () => {
-        checkPrefixFree(theme.tab256!, `${theme.id}.tab256`);
+    // For model-1024: chars must be unique (single-codepoint, so prefix-free by definition)
+    if (theme.model === 1024 && theme.chars) {
+      it(`${theme.id} chars are all single codepoints`, () => {
+        const chars = [...theme.chars!];
+        for (const ch of chars) {
+          expect([...ch]).toHaveLength(1);
+        }
       });
     }
   }
+});
+
+describe('emoji token uniqueness across themes', () => {
+  it('model-16 tab1 emoji do not overlap between themes or with 🙂 chars', () => {
+    const model16 = THEMES.filter(t => t.model === 16 && t.tab1);
+    const all = new Map<string, string>(); // normalized emoji → source description
+    // Include 🙂 theme chars so model-16 emoji cannot overlap with them.
+    const smileTheme = THEME_MAP.get('🙂');
+    if (smileTheme?.chars) {
+      for (const ch of [...smileTheme.chars]) {
+        const norm = stripFE0F(ch).trim();
+        all.set(norm, '🙂 chars');
+      }
+    }
+    for (const theme of model16) {
+      for (const token of theme.tab1!) {
+        const norm = stripFE0F(token).trim();
+        if (/^[\p{L}\p{N}]/u.test(norm)) continue; // skip text tokens
+        if (all.has(norm)) {
+          throw new Error(`Emoji "${token}" in ${theme.id} tab1 also in ${all.get(norm)}`);
+        }
+        all.set(norm, `${theme.id} tab1`);
+      }
+    }
+  });
 });
 
 describe('theme ordering', () => {
@@ -150,14 +179,3 @@ describe('theme ordering', () => {
   });
 });
 
-describe('theme prefixes are distinct', () => {
-  it('no prefix-based theme has prefix that is prefix of another', () => {
-    const prefixed = THEMES.filter(t => t.pre && t.model > 1);
-    for (let i = 0; i < prefixed.length; i++) {
-      for (let j = 0; j < prefixed.length; j++) {
-        if (i === j) continue;
-        expect(prefixed[j].pre.startsWith(prefixed[i].pre)).toBe(false);
-      }
-    }
-  });
-});

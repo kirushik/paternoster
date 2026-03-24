@@ -64,7 +64,7 @@ describe('stego auto-detection', () => {
     expect(result).toBeNull();
   });
 
-  it('does not confuse themes with different prefixes', () => {
+  it('does not confuse themes', () => {
     const input = randomBytes(20);
     const bozhe = stegoEncode(input, 'БОЖЕ');
     const pater = stegoEncode(input, 'PATER');
@@ -106,18 +106,20 @@ describe('stego FE0F robustness', () => {
 });
 
 describe('stego handles edge cases', () => {
-  it('empty input encodes to prefix+suffix or empty', () => {
-    const bozhe = stegoEncode(new Uint8Array([]), 'БОЖЕ');
-    expect(bozhe.length).toBeGreaterThan(0); // prefix + suffix with no data tokens
-    // Decoding prefix+suffix alone returns null (no byte data between markers)
-    // or an empty-bytes result depending on decoder — either is acceptable
-    const decoded = stegoDecode(bozhe);
-    if (decoded !== null) {
-      expect(decoded.bytes).toEqual(new Uint8Array([]));
-    }
-
+  it('empty input encodes to empty or padding-only', () => {
+    // hex produces empty string
     const hex = stegoEncode(new Uint8Array([]), 'hex');
     expect(hex).toBe('');
+
+    // model-4096/1024 themes produce padding tokens (roundtrip to empty)
+    for (const themeId of ['БОЖЕ', 'КИТАЙ', '🙂'] as const) {
+      const encoded = stegoEncode(new Uint8Array([]), themeId);
+      expect(encoded.length).toBeGreaterThan(0);
+      const decoded = stegoDecode(encoded);
+      if (decoded !== null) {
+        expect(decoded.bytes).toEqual(new Uint8Array([]));
+      }
+    }
   });
 
   it('truncated encoded text does not crash', () => {

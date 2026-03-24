@@ -4,16 +4,16 @@ export type ThemeId = 'БОЖЕ' | 'РОССИЯ' | 'СССР' | 'БУХАЮ' | 
 
 export interface Theme {
   readonly id: ThemeId;
-  readonly model: 0 | 1 | 16 | 64 | 256;
-  readonly pre: string;
-  readonly end: string;
+  readonly model: 0 | 16 | 64 | 1024 | 4096;
   readonly rand: number;
   readonly tab1?: readonly string[];
   readonly tab2?: readonly string[];
   readonly tab3?: readonly string[];
   readonly base?: number;
-  /** model-256: 256 tokens, one per byte value. sep = cosmetic separator. */
-  readonly tab256?: readonly string[];
+  /** model-1024: string of 1024 characters, one per token. */
+  readonly chars?: string;
+  /** model-4096 structured mode: 256 space-delimited words. */
+  readonly words?: string;
   readonly sep?: readonly string[];
   /** TTS language code (default: 'ru-RU') */
   readonly lang?: string;
@@ -21,29 +21,55 @@ export interface Theme {
 
 const BOZHE: Theme = {
   id: 'БОЖЕ',
-  model: 64,
+  model: 4096,
   rand: 0.8,
-  pre: 'Воистину',
-  end: '. Аминь.',
-  tab1: [' и ', ' да ', ', ', ' но '],
-  tab2: ['. Кто ', '. Не ', '? А ', ' - '],
-  tab3: (
+  tab1: [' и ', ' да ', ' же ', ' но ', ' яко ', ' ибо ', ' убо ', ' зане '],
+  tab2: ['. Ибо ', '. Яко ', '. Аще ', '. Обаче ', '. Убо ', '. Темже ', '. Зане ', '. Понеже '],
+  words: (
+    // original 64
     'раб ад рай бес мир живот грех Господь Всевышний Творец '
     + 'Сущий Владыка Царь Отец Сын Дух богатый нищий постившийся убозий '
     + 'демон Ангел святой благочестивый боголюбивый благоразумный поруганный грешный сумняся бояся '
     + 'лишися ничимже ничтоже достиже радуяся трудяся огорчися глаголя дарствуя видяше '
     + 'Воскресе насладится милует угождает внидет празднует приимет спасет сумнится приступит '
     + 'устрашится целует дает дарствует благодарит благоволит возвеселится приемлет почитает хвалит '
-    + 'дарует явится заплачет низложится'
-  ).split(' '),
+    + 'дарует явится заплачет низложится '
+    // divine names
+    + 'Бог Агнец Пастырь Судия Заступник Покровитель Утешитель Искупитель Спаситель Вседержитель Промыслитель Просветитель '
+    // heavenly beings
+    + 'Архангел Серафим Херувим Архистратиг Хранитель Богородица Приснодева Владычица '
+    // people and roles
+    + 'праведник мученик пророк апостол исповедник подвижник столпник юродивый затворник пустынник странник паломник инок монах '
+    // places
+    + 'небо земля храм алтарь престол обитель пустынь Голгофа Сион Иордан '
+    // objects
+    + 'купель венец ризы ладан миро елей хлеб вино свеча кадило икона лампада мощи Евангелие Псалтирь потир крест сосуд '
+    // nature and symbols
+    + 'овца пшеница виноградник жатва плевелы источник древо терние '
+    // spiritual concepts
+    + 'вера надежда любовь благодать милость правда истина свет тьма жизнь смерть покой слава вечность блаженство прощение '
+    + 'покаяние спасение искупление крещение причастие исповедь молитва пост благословение воздержание послушание смирение '
+    + 'терпение кротость целомудрие премудрость милосердие сострадание воскресение '
+    // more abstract
+    + 'душа плоть кровь страх радость печаль скорбь утешение '
+    // adjectives
+    + 'великий дивный предвечный бессмертный нетленный непостижимый неизреченный грядущий бренный ветхий '
+    + 'праведный чистый падший кающийся окаянный верный благоговейный немощный недостойный пречистый '
+    // sacraments and rites
+    + 'таинство миропомазание елеосвящение рукоположение венчание соборование литургия '
+    // verbs (Church Slavonic)
+    + 'помилует сохранит просветит укрепит вразумит наставит благословит простит избавит защитит '
+    + 'утвердит умирит освятит очистит обновит преобразит воздаст ниспослет услышит помянет '
+    + 'сподобит удостоит прославит возвысит утешит исцелит искупит возродит сокрушит облечет '
+    + 'созиждет разрешит отверзет воссияет снидет воцарится вселится пребудет возлюбит претерпит '
+    + 'восплачет возвеселит напитает посетит вознесет соединит примирит воздвигнет покроет напоит приютит исправит'
+  ),
 } as const;
 
 const ROSSIYA: Theme = {
   id: 'РОССИЯ',
   model: 16,
-  pre: 'ZOV ',
   rand: 0.5,
-  end: '!',
   tab1: [
     '🇿 ', '🙋', '🅉 ', '🙏', '🇷🇺',
     '✊', '💯', '❤️', '👊', '💪',
@@ -60,13 +86,11 @@ const ROSSIYA: Theme = {
 const SSSR: Theme = {
   id: 'СССР',
   model: 16,
-  pre: 'ВКПБ ',
   rand: 0.2,
-  end: '!',
   tab1: [
-    '✊', '🔴', '🙋', '🏭', '👏',
-    '🔥', '💯', '🚀', '❤️', '🛠️',
-    '☭', '⭐', '🚩', '🟥', '💪', '✨',
+    '🔨', '🔴', '⚙️', '🏭', '📢',
+    '⚒️', '🎖️', '🪖', '📕', '🛠️',
+    '☭', '🏅', '🎺', '🟥', '⛏️', '🛡️',
   ],
   tab2: [
     'ЛЕНИН ', 'СТАЛИН ', 'ПАРТИЯ ', 'ТРУД ', 'РАБОЧИЕ ',
@@ -78,9 +102,7 @@ const SSSR: Theme = {
 
 const KITAY: Theme = {
   id: 'КИТАЙ',
-  model: 1,
-  pre: '',
-  end: '',
+  model: 4096,
   base: 0x4E00,
   rand: 0.95,
   lang: 'zh-CN',
@@ -90,8 +112,6 @@ const BUKHAYU: Theme = {
   id: 'БУХАЮ',
   model: 16,
   rand: 0.5,
-  pre: 'Короче ',
-  end: '!!!!!!',
   tab1: [
     'где ', 'блядь ', 'сука ', 'ты ', 'заебал ',
     'бухаю ', 'ответь ', 'ну ', 'пиздец ', 'деньги ',
@@ -108,14 +128,13 @@ const BUKHAYU: Theme = {
 
 const PATER: Theme = {
   id: 'PATER',
-  model: 64,
+  model: 4096,
   rand: 0.8,
   lang: 'la',
-  pre: 'Oremus',
-  end: '. Amen.',
-  tab1: [' et ', ' ac ', ', ', ' sed '],
-  tab2: ['. Qui ', '. Non ', '? At ', ' — '],
-  tab3: (
+  tab1: [' et ', ' ac ', ' sed ', ' atque ', ' nam ', ' enim ', ' autem ', ' vero '],
+  tab2: ['. Quia ', '. Quoniam ', '. Ergo ', '. Igitur ', '. Ubi ', '. Quod ', '. Cum ', '. Nisi '],
+  words: (
+    // original 64
     'Dominus Deus spiritus sanctus peccator angelus diabolus caelum '
     + 'infernus pax bellum rex sacerdos propheta apostolus fidelis '
     + 'spes caritas gratia misericordia iustitia veritas lux tenebrae '
@@ -123,48 +142,86 @@ const PATER: Theme = {
     + 'resurrectio paenitentia confessio communio benedictio maledictio laudat orat '
     + 'cantat adorat servit regnat salvat condemnat absolvit iudicat '
     + 'creat liberat sanctificat illuminat patitur resurgit ascendit descendit '
-    + 'praedicat docet amat timet sperat credit vivit moritur'
-  ).split(' '),
+    + 'praedicat docet amat timet sperat credit vivit moritur '
+    // divine names and titles
+    + 'Christus Creator Salvator Redemptor Paraclitus Mediator Filius Pater Sponsus Verbum Trinitas Maria '
+    // heavenly beings and saints
+    + 'archangelus daemon martyr confessor eremita monachus presbyter episcopus diaconus pontifex frater soror '
+    // more people and roles
+    + 'levita vidua peregrinus catechumenus ancilla servus populus gentilis '
+    // places
+    + 'templum altare paradisum gehenna sepulcrum thronus regnum mundus '
+    // time and eschatology
+    + 'saeculum aeternum initium finis principium adventus parousia iudicium '
+    // sacred objects
+    + 'panis vinum aqua oleum incensum calyx hostia vestimentum pallium corona '
+    // virtues
+    + 'fides pietas humilitas patientia oboedientia castitas prudentia fortitudo temperantia sapientia '
+    // body and soul
+    + 'anima corpus cor mens oculus auris manus pes '
+    // sin and suffering
+    + 'peccatum culpa delictum tentatio tribulatio persecutio passio dolor poena maeror '
+    // glory and sacred
+    + 'gloria honor virtus mysterium signum miraculum testimonium promissio prophetia scriptura '
+    // law and covenant
+    + 'lex mandatum praeceptum foedus hereditas testamentum '
+    // verbs — protection and care
+    + 'custodiat protegat defendat nutriat gubernet benedicat consecrat offert immolat purificat '
+    // verbs — mercy and healing
+    + 'donat concedit remittit parcit miseretur consolatur sustentat reficit visitat sanat '
+    // verbs — triumph and sacrifice
+    + 'vincit superat triumphat tollit portat sustinet crucifigit sepellit resuscitat redimit '
+    // verbs — calling and gathering
+    + 'mittit vocat elegit congregat unit dividit iungit separat aperit claudit '
+    // verbs — praise and transformation
+    + 'magnificat exaltat humiliat convertit renovat confirmat roborat perficit complet implet '
+    // verbs — more actions
+    + 'inclinat respicit exaudit condonat ignoscit custodit tuetur mundat abluit aspergit '
+    + 'suscitat erigit sustollit deducit perducit commendat tradit accipit tribuit largitur '
+    // more nouns — worship and nature
+    + 'gaudium laetitia requies silentium oratio psalmus hymnus canticum sacrificium oblatio '
+    + 'tabernaculum lucerna fons rivus lignum vitis palma lilium rosa stella'
+  ),
 } as const;
+
+// 1024 curated single-codepoint emoji from supplementary Unicode blocks.
+// No overlap with РОССИЯ or СССР tab1 tokens.
+const EMOJI_CHARS: string =
+  ''
+  + '🌀🌁🌂🌃🌄🌅🌆🌇🌈🌉🌊🌋🌌🌍🌎🌏🌐🌑🌒🌓🌔🌕🌖🌗🌘🌙🌚🌛🌜🌝🌞🌟🌠🌡🌢🌣🌤🌥🌦🌧🌨🌩🌪🌫🌬🌭🌮🌯🌰🌱🌲🌳🌴🌵🌶🌷🌸🌹🌺🌻🌼🌽🌾🌿'
+  + '🍀🍁🍂🍃🍄🍅🍆🍇🍈🍉🍊🍋🍌🍍🍎🍏🍐🍑🍒🍓🍔🍕🍖🍗🍘🍙🍚🍛🍜🍝🍞🍟🍠🍡🍢🍣🍤🍥🍦🍧🍨🍩🍪🍫🍬🍭🍮🍯🍰🍱🍲🍳🍴🍵🍶🍷🍸🍹🍺🍻🍼🍽🍾🍿'
+  + '🎀🎁🎂🎃🎄🎅🎆🎇🎈🎉🎊🎋🎌🎍🎎🎏🎐🎑🎒🎓🎔🎕🎗🎘🎙🎚🎛🎜🎝🎞🎟🎠🎡🎢🎣🎤🎥🎦🎧🎨🎩🎪🎫🎬🎭🎮🎯🎰🎱🎲🎳🎴🎵🎶🎷🎸🎹🎻🎼🎽🎾🎿🏀🏁'
+  + '🏂🏃🏄🏆🏇🏈🏉🏊🏋🏌🏍🏎🏏🏐🏑🏒🏓🏔🏕🏖🏗🏘🏙🏚🏛🏜🏝🏞🏟🏠🏡🏢🏣🏤🏥🏦🏧🏨🏩🏪🏫🏬🏮🏯🏰🏱🏲🏳🏴🏵🏶🏷🏸🏹🏺🐀🐁🐂🐃🐄🐅🐆🐇🐈'
+  + '🐉🐊🐋🐌🐍🐎🐏🐐🐑🐒🐓🐔🐕🐖🐗🐘🐙🐚🐛🐜🐝🐞🐟🐠🐡🐢🐣🐤🐥🐦🐧🐨🐩🐪🐫🐬🐭🐮🐯🐰🐱🐲🐳🐴🐵🐶🐷🐸🐹🐺🐻🐼🐽🐾🐿👀👁👂👃👄👅👆👇👈'
+  + '👉👋👌👍👎👐👑👒👓👔👕👖👗👘👙👚👛👜👝👞👟👠👡👢👣👤👥👦👧👨👩👪👫👬👭👮👯👰👱👲👳👴👵👶👷👸👹👺👻👼👽👾👿💀💁💂💃💄💅💆💇💈💉💊'
+  + '💋💌💍💎💏💐💑💒💓💔💕💖💗💘💙💚💛💜💝💞💟💠💡💢💣💤💥💦💧💨💩💫💬💭💮💰💱💲💳💴💵💶💷💸💹💺💻💼💽💾💿📀📁📂📃📄📅📆📇📈📉📊📋📌'
+  + '📍📎📏📐📑📒📓📔📖📗📘📙📚📛📜📝📞📟📠📡📣📤📥📦📧📨📩📪📫📬📭📮📯📰📱📲📳📴📵📶📷📸📹📺📻📼📽📾📿🔀🔁🔂🔃🔄🔅🔆🔇🔈🔉🔊🔋🔌🔍🔎'
+  + '🔏🔐🔑🔒🔓🔔🔕🔖🔗🔘🔙🔚🔛🔜🔝🔞🔟🔠🔡🔢🔣🔤🔦🔧🔩🔪🔫🔬🔭🔮🔯🔰🔱🔲🔳🔵🔶🔷🔸🔹🔺🔻🔼🔽🔾🔿🕀🕁🕂🕃🕄🕅🕆🕇🕈🕉🕊🕋🕌🕍🕎🕏🕐🕑'
+  + '🕒🕓🕔🕕🕖🕗🕘🕙🕚🕛🕜🕝🕞🕟🕠🕡🕢🕣🕤🕥🕦🕧🕨🕩🕪🕫🕬🕭🕮🕯🕰🕱🕲🕳🕴🕵🕶🕷🕸🕹🕺🕻🕼🕽🕾🕿🖀🖁🖂🖃🖄🖅🖆🖇🖈🖉🖊🖋🖌🖍🖎🖏🖐🖑'
+  + '🖒🖓🖔🖕🖖🖗🖘🖙🖚🖛🖜🖝🖞🖟🖠🖡🖢🖣🖤🖥🖦🖧🖨🖩🖪🖫🖬🖭🖮🖯🖰🖱🖲🖳🖴🖵🖶🖷🖸🖹🖺🖻🖼🖽🖾🖿🗀🗁🗂🗃🗄🗅🗆🗇🗈🗉🗊🗋🗌🗍🗎🗏🗐🗑'
+  + '🗒🗓🗔🗕🗖🗗🗘🗙🗚🗛🗜🗝🗞🗟🗠🗡🗢🗣🗤🗥🗦🗧🗨🗩🗪🗫🗬🗭🗮🗯🗰🗱🗲🗳🗴🗵🗶🗷🗸🗹🗺🗻🗼🗽🗾🗿😀😁😂😃😄😅😆😇😈😉😊😋😌😍😎😏😐😑'
+  + '😒😓😔😕😖😗😘😙😚😛😜😝😞😟😠😡😢😣😤😥😦😧😨😩😪😫😬😭😮😯😰😱😲😳😴😵😶😷😸😹😺😻😼😽😾😿🙀🙁🙂🙃🙄🙅🙆🙇🙈🙉🙊🙌🙍🙎🚁🚂🚃🚄'
+  + '🚅🚆🚇🚈🚉🚊🚋🚌🚍🚎🚏🚐🚑🚒🚓🚔🚕🚖🚗🚘🚙🚚🚛🚜🚝🚞🚟🚠🚡🚢🚣🚤🚥🚦🚧🚨🚪🚫🚬🚭🚮🚯🚰🚱🚲🚳🚴🚵🚶🚷🚸🚹🚺🚻🚼🚽🚾🚿🛀🛁🛂🛃🛄🛅'
+  + '🛆🛇🛈🛉🛊🛋🛌🛍🛎🛏🛐🛑🛒🛓🛔🛕🛖🛗🛘🛙🛚🛛🛜🛝🛞🛟🛢🛣🛤🛥🛦🛧🛨🛩🛪🛫🛬🛭🛮🛯🛰🛱🛲🛳🛴🛵🛶🛷🛸🛹🛺🛻🛼🛽🛾🛿🤀🤁🤂🤃🤄🤅🤆🤇'
+  + '🤈🤉🤊🤋🤌🤍🤎🤏🤐🤑🤒🤓🤔🤕🤖🤗🤘🤙🤚🤛🤜🤝🤞🤟🤠🤡🤢🤣🤤🤥🤦🤧🤨🤩🤪🤫🤬🤭🤮🤯🤰🤱🤲🤳🤴🤵🤶🤷🤸🤹🤺🤻🤼🤽🤾🤿🥀🥁🥂🥃🥄🥅🥆🥇';
 
 const EMOJI: Theme = {
   id: '🙂',
-  model: 256,
+  model: 1024,
   rand: 0.7,
   lang: 'en',
-  pre: '🔮',
-  end: '🔮',
-  sep: [' ', '', ' ', ''],
-  tab256: [
-    '😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩',
-    '😘','😗','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐',
-    '🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒',
-    '🤕','🤢','🤮','🥵','🥶','🥴','😵','🤯','🤠','🥳','🥸','😎','🤓','🧐','😕','😟',
-    '🙁','😮','😯','😲','😳','🥺','🥹','😦','😧','😨','😰','😥','😢','😭','😱','😖',
-    '😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀','☠️','💩','🤡',
-    '👹','👺','👻','👽','👾','🤖','😺','😸','😹','😻','😼','😽','🙀','😿','😾','🙈',
-    '🙉','🙊','💋','💌','💘','💝','💖','💗','💓','💞','💕','💟','❣️','💔','🧡','💛',
-    '💚','💙','💜','🤎','🖤','🤍','💯','💢','💥','💫','💦','💨','🕳️','💣','💬','🗨️',
-    '🗯️','💭','💤','👋','🤚','🖐️','✋','🖖','🫱','🫲','🫳','🫴','👌','🤌','🤏','✌️',
-    '🤞','🫰','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','🫵','👍','👎','✊','👊',
-    '🤛','🤜','👏','🙌','🫶','👐','🤲','🤝','🙏','✍️','💅','🤳','💪','🦾','🦿','🦵',
-    '🦶','👂','🦻','👃','🧠','🫀','🫁','🦷','🦴','👀','👁️','👅','👄','🫦','👶','🧒',
-    '👦','👧','🧑','👱','👨','🧔','👩','🧓','👴','👵','🙍','🙎','🙅','🙆','💁','🙋',
-    '🧏','🙇','🤦','🤷','👮','🕵️','💂','🥷','👷','🫅','🤴','👸','👳','👲','🧕','🤵',
-    '👰','🤰','🫃','🫄','🤱','👼','🎅','🤶','🦸','🦹','🧙','🧚','🧛','🧜','🧝','🧞',
-  ],
+  chars: EMOJI_CHARS,
+  sep: [''],
 } as const;
 
 const HEX: Theme = {
   id: 'hex',
   model: 0,
-  pre: '',
-  end: '',
   rand: 0,
 } as const;
 
 /** All themes in detection priority order (hex MUST be last). */
-export const THEMES: readonly Theme[] = [BOZHE, ROSSIYA, SSSR, KITAY, BUKHAYU, PATER, EMOJI, HEX] as const;
+export const THEMES: readonly Theme[] = [KITAY, PATER, BOZHE, BUKHAYU, ROSSIYA, SSSR, EMOJI, HEX] as const;
 
 /** Theme lookup by ID. */
 export const THEME_MAP: ReadonlyMap<ThemeId, Theme> = new Map(THEMES.map(t => [t.id, t]));
