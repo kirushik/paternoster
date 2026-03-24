@@ -12,7 +12,17 @@ The single-field design eliminates modes entirely. The user types or pastes into
 2. **Starts with a known theme prefix** ("Воистину", "ZOV ", etc.) or CJK characters → decode as steganographic message
 3. **Everything else** → encode as plaintext message
 
-The output always appears in a read-only label below the field. There is no "encrypt" button, no "decrypt" button, no mode toggle.
+The output always appears in a read-only label below the field. There is no "encrypt" button, no "decrypt" button.
+
+## Broadcast Mode
+
+A toggle button in the bottom-right corner (next to the download button) switches between messaging mode and broadcast mode. In broadcast mode:
+- Contacts bar and chat area are hidden
+- Input is always encoded as a broadcast frame (never decoded)
+- A "Подписано / Без подписи" toggle controls whether the broadcast includes an Ed25519 signature bound to the sender's identity
+- The amber accent color on the sign toggle and broadcast chat bubbles visually distinguishes broadcast content from P2P messages
+
+In messaging mode, broadcast messages from others are auto-detected and decoded normally. Signed broadcasts from known contacts appear in the contact's chat history with distinct amber-accented styling.
 
 An **output mode label** above the output text tells the user what the app decided: "Зашифровано", "Расшифровано · от Alice", "Мой контакт", etc. This makes the auto-detect logic transparent without adding UI modes.
 

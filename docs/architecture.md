@@ -17,16 +17,19 @@ The UI is a single text field, an output label, and a contact strip. React/Vue/S
 ```
 main.ts              — Init, UI rendering, event wiring, state machine (processInput)
 ├── crypto.ts        — Web Crypto X25519, AES-GCM, HKDF key derivation
+├── sign.ts          — Ed25519 key derivation from X25519, signing, verification (broadcast)
+├── broadcast.ts     — Broadcast frame serialization/parsing (signed + unsigned)
 ├── compress.ts      — Compression dispatch (picks smaller of smaz vs literal)
 │   ├── squash.ts    — CP1251-based single-byte pre-encoding
 │   └── smaz.ts      — Trie-based codebook compression (253-entry Cyrillic codebook)
 ├── stego.ts         — Steganographic encode/decode dispatch + auto-detection
 │   └── dictionaries.ts — Theme definitions (word lists, model params, TTS lang)
-├── wire.ts          — Binary message framing (type byte + payload)
-├── contacts.ts      — Contact CRUD (localStorage persistence)
+├── wire.ts          — Binary message framing (type byte + payload), shared constants
+├── contacts.ts      — Contact CRUD (localStorage persistence, TOFU ed25519 cache)
 │   └── storage.ts   — localStorage key namespace
 ├── identity.ts      — Identity export/import (PBKDF2 + AES-GCM passphrase protection)
 ├── tts.ts           — SpeechSynthesis wrapper (decoy feature)
+├── chat.ts          — Session chat history (supports message + broadcast types)
 └── utils.ts         — Hex, base64url, concat, equality, contact verification codes
 ```
 
@@ -45,6 +48,16 @@ themed text → stego decode (auto-detect theme) → wire parse → decrypt (try
 **Contact sharing:**
 ```
 public key → wire frame (type 0x20) → stego encode → themed text (or base64url invite token)
+```
+
+**Broadcast encoding (broadcast mode):**
+```
+plaintext → compress → broadcast frame (signed or unsigned) → stego encode → themed text
+```
+
+**Broadcast decoding (messaging mode, auto-detected):**
+```
+themed text → stego decode → try broadcast parse (signed: Ed25519 verify, unsigned: checksum) → decompress → plaintext
 ```
 
 ## Build

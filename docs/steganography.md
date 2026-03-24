@@ -1,6 +1,6 @@
 # Steganography
 
-Encrypted bytes are encoded as themed text that looks like normal (if eccentric) content. The encoding is purely cosmetic — it provides concealment, not additional security. An adversary who knows the encoding scheme can decode to ciphertext, but can't decrypt without the key.
+Encrypted bytes (or broadcast frames) are encoded as themed text that looks like normal (if eccentric) content. The encoding is purely cosmetic — it provides concealment, not additional security. An adversary who knows the encoding scheme can decode to raw bytes, but can't decrypt P2P messages without the key. Broadcast messages are public by design, but the stego layer still conceals their nature as structured data.
 
 ## Why Themed Encoding
 

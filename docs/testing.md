@@ -34,9 +34,12 @@ tests/
 │   ├── stego.test.ts         # All models × all byte values, auto-detect, edge cases (39)
 │   ├── dictionaries.test.ts  # Table sizes, uniqueness, prefix-free (30)
 │   ├── contacts.test.ts      # CRUD with localStorage mock, schema validation (17)
+│   ├── sign.test.ts          # Ed25519 derivation, sign/verify, wrong key rejection (8)
+│   ├── broadcast.test.ts     # Broadcast frame serialize/parse, flags, false positive (15)
 │   └── identity.test.ts      # Export/import roundtrip, wrong passphrase, corruption (5)
 ├── integration/
 │   ├── pipeline.test.ts      # Full encrypt→stego→decrypt roundtrip per theme (24)
+│   ├── broadcast-pipeline.test.ts  # Full broadcast roundtrip per theme, signed+unsigned (21)
 │   ├── contact-exchange.test.ts  # Contact token through stego roundtrip (9)
 │   └── invite.test.ts        # Base64url token generate/parse (8)
 └── e2e/

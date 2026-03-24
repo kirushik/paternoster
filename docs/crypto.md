@@ -14,7 +14,7 @@ X25519 (Curve25519 ECDH) provides 128-bit security with 32-byte keys — the sho
 
 **Platform surveillance.** Messages traverse monitored platforms (Telegram, VK, email). The adversary scans for encrypted content patterns. Encryption prevents reading; steganographic encoding prevents detection. The crypto doesn't protect against device seizure (keys are in localStorage) or a compromised browser.
 
-**Not in scope:** forward secrecy (static key pairs). Messages are not digitally signed. Sender identity is inferred from which contact key successfully decrypts (MSG) or from the sender key inside the encrypted envelope (INTRO). First-contact trust is TOFU unless users verify contact codes out-of-band.
+**Not in scope:** forward secrecy (static key pairs). P2P messages are not digitally signed — sender identity is inferred from which contact key successfully decrypts (MSG) or from the sender key inside the encrypted envelope (INTRO). First-contact trust is TOFU unless users verify contact codes out-of-band. Broadcast messages can optionally be signed with Ed25519 (see below).
 
 **Deniable authentication:** ECDH is symmetric — `ECDH(Alice_priv, Bob_pub) = ECDH(Bob_priv, Alice_pub)`. Both parties can verify the other's identity but neither can prove authorship to a third party.
 
@@ -33,11 +33,15 @@ Headerless frames — every frame starts with random bytes for optimal steganogr
 | MSG | `[seed:6][ciphertext][tag:8]` | **14 bytes** |
 | INTRO | `[eph_pub:32][ciphertext][tag:8]` | **40 bytes** (seedless) |
 | CONTACT | `[pub:32][check:2]` | **34 bytes** |
+| BROADCAST_SIGNED | `[flags:1][x25519_pub:32][ed25519_pub:32][compressed][sig:64]` | **129 bytes** |
+| BROADCAST_UNSIGNED | `[flags:1][compressed][check:2]` | **3 bytes** |
 
-**No header byte.** Frame type is determined by:
-1. Trial decryption as MSG (try each contact's key)
-2. Trial decryption as INTRO (first 32 bytes as ephemeral key)
-3. CONTACT check byte validation (`bytes[32:34] == checkBytes(bytes[0:32])`)
+**Frame type detection order:**
+1. Trial decryption as MSG (try each contact's key — 2^-64 false positive per key)
+2. Trial decryption as INTRO (first 32 bytes as ephemeral key — 2^-64 false positive)
+3. BROADCAST_SIGNED: flags byte discriminator `(byte[0] & 0x3F) == 0x02` + Ed25519 signature verification
+4. CONTACT check byte validation (`bytes[32:34] == checkBytes(bytes[0:32])`)
+5. BROADCAST_UNSIGNED: flags byte discriminator `(byte[0] & 0x3F) == 0x03` + XOR-fold checksum
 
 AES-GCM's 64-bit tag makes false accepts astronomically unlikely (2^-64 per attempt). Safe for manual copy-paste with no decryption oracle.
 
@@ -113,14 +117,59 @@ We use `tagLength: 64` (8 bytes) instead of the default 128 (16 bytes). This sav
 
 **Why this is safe:** Single-forgery probability is 2^-64 per attempt. There is no decryption oracle — the user manually pastes stegotext. An attacker cannot submit automated forgery probes. NIST's deprecation of short tags targets high-throughput automated protocols (TLS, IPsec), not manual copy-paste messaging.
 
+### Broadcast Frames
+
+Broadcast messages are public (readable by anyone). They use a **flags byte** with a different layout than MSG/INTRO:
+
+```
+Bits 7-6: compMode (same encoding as MSG seed[0])
+Bits 5-0: frame discriminator
+  0x02 = BROADCAST_SIGNED
+  0x03 = BROADCAST_UNSIGNED
+```
+
+**BROADCAST_UNSIGNED:**
+```
+wire = [flags:1][compressed_message:N][check:2]
+check = contactCheckBytes(flags || compressed_message)
+```
+3 bytes overhead. XOR-fold checksum (same algorithm as CONTACT). False positive: ~2^-22 (1/64 discriminator × 1/65536 checksum).
+
+**BROADCAST_SIGNED:**
+```
+data = [flags:1][x25519_pub:32][ed25519_pub:32][compressed_message:N]
+sig  = Ed25519.sign(ed25519_priv, data)
+wire = data || sig
+```
+129 bytes overhead. Signature covers everything except itself.
+
+### Ed25519 Signing for Broadcast
+
+Ed25519 signing keys are derived from the X25519 identity key via HKDF:
+
+```
+ed25519_seed = HKDF(
+  salt = "paternoster-sign-v1",
+  IKM  = x25519_private_key,
+  info = "ed25519",
+  L    = 32
+)
+```
+
+Imported via PKCS8 with Ed25519 OID (identical header to X25519, one byte different: `0x6e` → `0x70`).
+
+**Identity binding:** The Ed25519 public key is not mathematically derivable from the X25519 public key. Binding uses TOFU — on first verified signed broadcast from a contact, the ed25519 public key is cached in the contact record. Subsequent broadcasts check the cached key.
+
 ## PKCS8 Wrapping
 
-Web Crypto doesn't support raw X25519 private key import. We construct a PKCS8 ASN.1 wrapper: a fixed 16-byte header followed by the 32-byte raw key.
+Web Crypto doesn't support raw X25519/Ed25519 private key import. We construct a PKCS8 ASN.1 wrapper: a fixed 16-byte header followed by the 32-byte raw key. The only difference between X25519 and Ed25519 headers is the OID byte (index 11): `0x6e` (X25519, OID 1.3.101.110) vs `0x70` (Ed25519, OID 1.3.101.112).
 
 ## Files
 
-- `src/crypto.ts` — all crypto operations
-- `src/wire.ts` — wire format serialization and parsing
+- `src/crypto.ts` — X25519 ECDH, AES-GCM encryption, HKDF key derivation
+- `src/sign.ts` — Ed25519 key derivation, signing, verification
+- `src/broadcast.ts` — broadcast frame serialization and parsing
+- `src/wire.ts` — P2P wire format serialization and parsing, shared constants
 
 ## Gotchas
 

@@ -19,10 +19,13 @@ import {
   getContactKey,
   getSelectedContactId,
   setSelectedContactId,
+  cacheEd25519Key,
 } from './contacts';
 import { speak, stopSpeaking, isSpeaking, hasVoiceForLang, onVoicesChanged } from './tts';
 import { exportIdentity, importIdentity } from './identity';
 import { loadChat, addChatMessage, clearChat, randomChatId } from './chat';
+import { tryParseBroadcastSigned, tryParseBroadcastUnsigned, serializeBroadcastSigned, serializeBroadcastUnsigned } from './broadcast';
+import { deriveSigningKeys, type SigningKeys } from './sign';
 
 // ── State ───────────────────────────────────────────────
 
@@ -32,6 +35,9 @@ let contacts: Contact[] = [];
 let selectedContactId: string | null = null;
 let selectedTheme: ThemeId = 'БОЖЕ';
 let lastDecodedSender: string | null = null;
+let broadcastMode = false;
+let broadcastSigned = true;
+let signingKeys: SigningKeys | null = null;
 let copyableText = '';
 let copyLabel = '📋 Скопировать';
 let ttsText = '';
@@ -40,6 +46,7 @@ let pendingNewContact: {
   plaintext: string;
   encoded: string;
   theme: ThemeId;
+  isBroadcast?: boolean;
 } | null = null;
 const contactCodes = new Map<string, string>(); // publicKeyHex → "XXXX XXXX XXXX XXXX"
 
@@ -71,6 +78,9 @@ async function init(): Promise<void> {
   contacts = loadContacts();
   selectedContactId = getSelectedContactId();
   selectedTheme = (storageGet(STORAGE.selectedTheme) as ThemeId) || 'БОЖЕ';
+
+  // Derive Ed25519 signing keys for broadcast (non-blocking)
+  deriveSigningKeys(myPrivateKey).then(keys => { signingKeys = keys; }).catch(() => {});
 
   render();
   wireEvents();
@@ -268,7 +278,15 @@ function render(): void {
   app.innerHTML = `
     <div class="contacts-bar" id="contacts-bar"></div>
     <div class="chat-area" id="chat-area"></div>
-    <textarea id="input" placeholder="Вставьте код, ссылку или сообщение — приложение само поймёт" rows="4"></textarea>
+    ${broadcastMode ? `
+    <div class="broadcast-bar" id="broadcast-bar">
+      <button class="broadcast-sign-btn${broadcastSigned ? ' selected' : ''}" id="broadcast-sign-toggle">
+        ${broadcastSigned ? 'Подписано' : 'Без подписи'}
+      </button>
+    </div>` : ''}
+    <textarea id="input" placeholder="${broadcastMode
+      ? 'Введите сообщение для публикации'
+      : 'Вставьте код, ссылку или сообщение — приложение само поймёт'}" rows="4"></textarea>
     <div class="output-area">
       <div id="output-mode-label" class="output-mode-label"></div>
       <div id="output" class="output-label"></div>
@@ -280,7 +298,12 @@ function render(): void {
     </div>
     <div id="error" class="error"></div>
     <div id="status" class="status-bar"></div>
-    <button id="download-btn" class="download-btn" title="Скачать приложение">⬇ Скачать</button>
+    <div class="footer-bar">
+      <button id="mode-toggle" class="mode-toggle-btn${broadcastMode ? ' active' : ''}" title="${broadcastMode ? 'Переписка' : 'Публикация'}">
+        ${broadcastMode ? '✉' : '📢'}
+      </button>
+      <button id="download-btn" class="download-btn" title="Скачать приложение">⬇ Скачать</button>
+    </div>
   `;
 
   inputEl = $('input') as HTMLTextAreaElement;
@@ -358,9 +381,17 @@ function renderChat(): void {
   chatEl.textContent = '';
 
   for (const msg of messages) {
+    const isBroadcast = msg.type === 'broadcast';
     const bubble = document.createElement('div');
-    bubble.className = `chat-message ${msg.direction}`;
+    bubble.className = `chat-message ${msg.direction}${isBroadcast ? ' broadcast' : ''}`;
     bubble.dataset.msgId = msg.id;
+
+    if (isBroadcast) {
+      const label = document.createElement('div');
+      label.className = 'chat-broadcast-label';
+      label.textContent = 'Публикация';
+      bubble.appendChild(label);
+    }
 
     const text = document.createElement('div');
     text.className = 'chat-text';
@@ -529,6 +560,33 @@ function wireEvents(): void {
   copyBtn.addEventListener('click', handleCopy);
   ttsBtn.addEventListener('click', handleTts);
   $('download-btn').addEventListener('click', handleDownload);
+
+  $('mode-toggle').addEventListener('click', () => {
+    broadcastMode = !broadcastMode;
+    render();
+    wireEvents();
+    if (broadcastMode) {
+      // Hide contacts and chat in broadcast mode
+      contactsEl.style.display = 'none';
+      ($('chat-area') as HTMLDivElement).style.display = 'none';
+    }
+    processInput();
+    refreshContactCodes();
+  });
+
+  if (broadcastMode) {
+    const signToggle = document.getElementById('broadcast-sign-toggle');
+    if (signToggle) {
+      signToggle.addEventListener('click', () => {
+        broadcastSigned = !broadcastSigned;
+        signToggle.textContent = broadcastSigned ? 'Подписано' : 'Без подписи';
+        signToggle.className = `broadcast-sign-btn${broadcastSigned ? ' selected' : ''}`;
+        processInput();
+      });
+    }
+    // Hide contacts bar in broadcast mode
+    contactsEl.style.display = 'none';
+  }
 }
 
 function autoGrow(el: HTMLTextAreaElement): void {
@@ -551,6 +609,12 @@ async function processInput(): Promise<void> {
     ttsText = '';
     lastDecodedSender = null;
     updateStatus();
+    return;
+  }
+
+  // Broadcast mode: always encode as broadcast
+  if (broadcastMode) {
+    await handleBroadcastEncode(text);
     return;
   }
 
@@ -606,6 +670,43 @@ async function handleEncode(plaintext: string): Promise<void> {
   } catch (e) {
     showError(`Ошибка шифрования: ${(e as Error).message}`);
   }
+}
+
+/** Encode text as a broadcast message (signed or unsigned). */
+async function handleBroadcastEncode(plaintext: string): Promise<void> {
+  lastDecodedSender = null;
+
+  try {
+    const { payload: compressed, compMode } = compress(plaintext);
+    let wireFrame: Uint8Array;
+
+    if (broadcastSigned && signingKeys) {
+      wireFrame = await serializeBroadcastSigned(
+        compressed, compMode,
+        myPublicKey, signingKeys.publicKeyRaw,
+        signingKeys.privateKey,
+      );
+      setOutputLabel('Подписанная публикация');
+    } else {
+      wireFrame = serializeBroadcastUnsigned(compressed, compMode);
+      setOutputLabel('Публикация без подписи');
+    }
+
+    const stegoText = stegoEncode(wireFrame, selectedTheme);
+    outputEl.textContent = stegoText;
+    setCopyableText(stegoText, 'Скопировать сообщение');
+    ttsText = stegoText;
+    updateBroadcastStatus();
+  } catch (e) {
+    showError(`Ошибка: ${(e as Error).message}`);
+  }
+}
+
+function updateBroadcastStatus(): void {
+  const outputLen = outputEl.textContent?.length ?? 0;
+  const parts = [broadcastSigned ? 'подписано' : 'без подписи', selectedTheme];
+  if (outputLen > 0) parts.push(`${outputLen} символов`);
+  statusEl.textContent = parts.join(' · ');
 }
 
 /** Shared logic: process a successfully decoded introduction (sender pub + plaintext). */
@@ -729,15 +830,104 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
     }
   }
 
-  // 3. Try as CONTACT: pub = bytes[0:32], check = bytes[32]
+  // 3. Try as BROADCAST_SIGNED
+  const signed = await tryParseBroadcastSigned(bytes);
+  if (signed) {
+    const plaintext = decompress(signed.compressed, signed.compMode);
+    await handleDecodedBroadcast(plaintext, signed.x25519Pub, signed.ed25519Pub, _theme);
+    return;
+  }
+
+  // 4. Try as CONTACT: pub = bytes[0:32], check = bytes[32]
   const contactPub = tryParseContact(bytes);
   if (contactPub) {
     await handleContactToken(contactPub);
     return;
   }
 
+  // 5. Try as BROADCAST_UNSIGNED
+  const unsigned = tryParseBroadcastUnsigned(bytes);
+  if (unsigned) {
+    try {
+      const plaintext = decompress(unsigned.compressed, unsigned.compMode);
+      handleDecodedBroadcastUnsigned(plaintext, _theme);
+      return;
+    } catch {
+      // Decompression failed — not a valid broadcast, fall through
+    }
+  }
+
   // Nothing worked — treat as plaintext to encode
   await handleEncode(inputEl.value.trim());
+}
+
+/** Handle a decoded signed broadcast. */
+async function handleDecodedBroadcast(
+  plaintext: string,
+  x25519Pub: Uint8Array,
+  ed25519Pub: Uint8Array,
+  _theme: ThemeId,
+): Promise<void> {
+  const knownSender = findContactByKey(x25519Pub);
+  outputEl.textContent = plaintext;
+  ttsText = inputEl.value.trim();
+
+  if (knownSender) {
+    // TOFU: cache ed25519 key
+    const ed25519Hex = u8hex(ed25519Pub);
+    const tofuResult = cacheEd25519Key(knownSender.id, ed25519Hex);
+    contacts = loadContacts();
+
+    const tofuNote = tofuResult === 'mismatch' ? ' · ⚠ ключ подписи изменился!' : '';
+    lastDecodedSender = knownSender.name;
+    setOutputLabel(`Публикация · от ${knownSender.name}${tofuNote}`);
+    setCopyableText(plaintext, 'Скопировать текст');
+
+    // Add to chat history as broadcast
+    const chatResult = addChatMessage({
+      id: randomChatId(), direction: 'received', plaintext,
+      encoded: inputEl.value.trim(), contactId: knownSender.id,
+      senderName: knownSender.name, timestamp: Date.now(), theme: _theme,
+      type: 'broadcast',
+    });
+    if (selectedContactId !== knownSender.id) {
+      selectedContactId = knownSender.id;
+      setSelectedContactId(knownSender.id);
+      renderContacts();
+    }
+    renderChat();
+    if (!chatResult.added) flashChatMessage(chatResult.duplicateId);
+    inputEl.value = '';
+    autoGrow(inputEl);
+    outputEl.textContent = '';
+    setOutputLabel('');
+    setCopyableText('', '📋 Скопировать');
+    ttsText = '';
+  } else {
+    // Unknown sender — offer to save contact
+    lastDecodedSender = null;
+    setOutputLabel('Публикация · от неизвестного отправителя');
+    setCopyableText(plaintext, 'Скопировать текст');
+    pendingNewContact = {
+      senderKey: x25519Pub,
+      plaintext,
+      encoded: inputEl.value.trim(),
+      theme: _theme,
+      isBroadcast: true,
+    };
+    addSaveContactBtn();
+  }
+  updateStatus();
+}
+
+/** Handle a decoded unsigned broadcast (no sender identity). */
+function handleDecodedBroadcastUnsigned(plaintext: string, _theme: ThemeId): void {
+  lastDecodedSender = null;
+  outputEl.textContent = plaintext;
+  setOutputLabel('Публикация · без подписи');
+  setCopyableText(plaintext, 'Скопировать текст');
+  ttsText = inputEl.value.trim();
+  updateStatus();
 }
 
 function addSaveContactBtn(): void {
@@ -787,6 +977,7 @@ async function handleSavePendingContact(): Promise<void> {
     senderName: name,
     timestamp: Date.now(),
     theme: pendingNewContact.theme,
+    type: pendingNewContact.isBroadcast ? 'broadcast' : 'message',
   });
 
   pendingNewContact = null;
