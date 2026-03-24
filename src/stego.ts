@@ -52,7 +52,9 @@ function encoder16(b: Uint8Array, tab: Theme): string {
 
 function decoder16(s: string, tab: Theme): Uint8Array | null {
   const normalized = normalizeForDecode(s);
-  let remainder = normalized;
+  // Tokens include trailing separators (spaces) that may be stripped by input trimming
+  // or clipboard paste. Padding restores the last separator so the final token matches.
+  let remainder = normalized.endsWith(' ') ? normalized : normalized + ' ';
   const t1 = normalizeTab(tab.tab1)!;
   const t2 = normalizeTab(tab.tab2) ?? t1;
   const nibbles: number[] = [];
@@ -76,7 +78,10 @@ function decoder16(s: string, tab: Theme): Uint8Array | null {
         }
       }
     }
-    if (found < 0) return null;
+    if (found < 0) {
+      if (remainder.trim().length === 0) break;
+      return null;
+    }
     nibbles.push(found);
   }
 

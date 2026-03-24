@@ -1,22 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
-
-/** Wait for custom <dialog> to appear, fill fields by placeholder, click confirm. */
-async function fillDialogAndConfirm(
-  page: Page,
-  fieldValues: Record<string, string>,
-): Promise<void> {
-  const dialog = page.locator('dialog.app-dialog');
-  await dialog.waitFor({ state: 'visible' });
-
-  for (const [placeholder, value] of Object.entries(fieldValues)) {
-    await dialog
-      .locator(`input[placeholder="${placeholder}"], textarea[placeholder="${placeholder}"]`)
-      .fill(value);
-  }
-
-  await dialog.locator('.dialog-confirm').click();
-  await dialog.waitFor({ state: 'hidden' });
-}
+import { test, expect } from '@playwright/test';
+import { fillDialogAndConfirm } from './helpers';
 
 test.describe('two-party message exchange', () => {
   test('Alice and Bob exchange messages end-to-end', async ({ browser }) => {

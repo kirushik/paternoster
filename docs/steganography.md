@@ -52,6 +52,7 @@ Output must survive copy-paste across Telegram, VK, WhatsApp, Instagram, Twitter
 - **No combining diacriticals.** Unicode normalization (NFC/NFD) can destroy them.
 - **Handle FE0F (variation selector 16).** Platforms add or strip it from emoji. All decoders strip FE0F before matching. Emoji in dictionaries may include FE0F in the source but the decoder doesn't require it.
 - **No bare spaces as tokens.** Consecutive spaces get collapsed. The old РОССИЯ/СССР dictionaries had `" "` as tab1[15] — replaced with `"✨"`.
+- **Trailing whitespace tolerance.** Model 16 tokens include trailing spaces as separators (e.g. `'ладно '`). Copy-paste or input trimming may strip the last separator. The decoder pads the input with a trailing space if absent and tolerates whitespace-only remainders after parsing.
 - **No regional indicator sequences** that might combine with adjacent characters.
 
 ## Files
