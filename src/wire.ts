@@ -4,9 +4,9 @@
  * Frame structures:
  *   MSG:     [seed:6][ciphertext][tag:8]           — seed[0] top 2 bits = comp mode
  *   INTRO:   [eph_pub:32][ciphertext][tag:8]     — no seed; ephemeral ECDH provides uniqueness
- *   CONTACT: [pub:32][check:1]                     — check byte at the END
+ *   CONTACT: [pub:32][check:2]                     — check bytes at the END
  *
- * Frame type is determined by trial decryption (MSG/INTRO) or check byte (CONTACT).
+ * Frame type is determined by trial decryption (MSG/INTRO) or check bytes (CONTACT).
  * See docs/crypto.md for full spec.
  */
 

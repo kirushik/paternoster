@@ -93,7 +93,7 @@ function decoder16(s: string, tab: Theme): Uint8Array | null {
   return bytes;
 }
 
-// ── Model 64: 2-bit + 6-bit lookup (PATER) ─────────────
+// ── Model 64: 2-bit + 6-bit lookup ──────────────────────
 
 function encoder64(b: Uint8Array, tab: Theme): string {
   const t1 = tab.tab1!;
@@ -377,14 +377,15 @@ export function stegoEncode(bytes: Uint8Array, themeId: ThemeId): string {
 
 /** Auto-detect theme and decode steganographic text to bytes. */
 export function stegoDecode(text: string): DecodeResult | null {
+  const trimmed = text.trim();
   for (const theme of THEMES) {
     // Quick rejection heuristic for flat base-offset themes (e.g. КИТАЙ)
     if (theme.model === 4096 && theme.base !== undefined) {
-      const firstChar = text.codePointAt(0);
+      const firstChar = trimmed.codePointAt(0);
       if (firstChar === undefined || firstChar < theme.base || firstChar >= theme.base + 4096) continue;
     }
 
-    const bytes = DECODERS[theme.model](text, theme);
+    const bytes = DECODERS[theme.model](trimmed, theme);
     if (bytes && bytes.length > 0) {
       return { bytes, theme: theme.id };
     }

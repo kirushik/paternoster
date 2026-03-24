@@ -93,7 +93,7 @@ const PAYLOADS: [string, string][] = [
   ['long message', 'Здравствуйте, коллеги. Напоминаю, что завтра в десять утра состоится совещание по проекту. Просьба подготовить отчёты за текущий квартал и быть готовыми к обсуждению дальнейших шагов.'],
 ];
 
-describe('size benchmarks', () => {
+describe.skipIf(!process.env.BENCH)('size benchmarks', () => {
   for (const [label, text] of PAYLOADS) {
     it(`${label}: "${text.slice(0, 30)}${text.length > 30 ? '…' : ''}"`, async () => {
       const { msgFrame, introFrame, compressionInfo } = await buildFrames(text);

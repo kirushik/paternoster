@@ -37,7 +37,7 @@ Model 4096 flat mode inserts cosmetic spaces between token pairs controlled by `
    - Model 4096 structured: tab1 (8 connectors) + tab2 (8 connectors) = 16 connectors, plus `words` (256 space-delimited words)
 3. **All tokens within a table must be unique after FE0F normalization.** The dictionary tests enforce this.
 4. **Tokens must be prefix-free within their lookup table.** No token can be a prefix of another token in the same table. The greedy decoder depends on this.
-5. **Emoji tokens must not overlap with other themes.** РОССИЯ and СССР tab1 emoji must be disjoint from each other and from the 🙂 chars string. The dictionary tests enforce this.
+5. **Emoji tokens must not overlap with other themes.** РОССИЯ and СССР tab1 emoji must be disjoint from each other and from the 🙂 chars string. The dictionary tests enforce this (see `dictionaries.test.ts` — "emoji token uniqueness across themes").
 6. Ensure your theme's token vocabulary doesn't overlap with existing themes. Auto-detection tries each decoder in order; the first one that successfully parses the input wins.
 7. Add to `THEMES` array in `dictionaries.ts` — **before `hex`** (hex must be last, it matches anything). Place more distinctive themes (unique character sets) earlier in the array.
 8. Add the theme ID to the `ThemeId` union type.
@@ -65,4 +65,5 @@ Output must survive copy-paste across Telegram, VK, WhatsApp, Instagram, Twitter
 - Auto-detection iterates `THEMES` array in order, trying each decoder. First theme whose decoder successfully parses the input wins. Themes are ordered by token-set distinctiveness (most unique first) to minimize false-positive attempts.
 - Model 0 (hex) tries to decode any text as hex. That's why it must be last in the array.
 - Encoder output is non-deterministic (random tab switching in model 16, random cosmetic spaces in model 4096 flat, random connector choice in model 4096 structured). The decoder accepts output from any randomization. You can't compare two encodings of the same data for equality.
-- Model 1024/4096 prepend a padding count byte. Empty input still produces tokens (encoding the padding byte).
+- Model 1024 encodes the pad-bit count in a 4-bit header inside the first 10-bit token. Empty input still produces one token (encoding this header).
+- Model 4096 prepends a 1-byte padding count and pads to a 3-byte chunk boundary. Empty input still produces tokens encoding this padding byte (and any required padding).

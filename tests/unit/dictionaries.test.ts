@@ -138,17 +138,25 @@ describe('prefix-free property', () => {
 });
 
 describe('emoji token uniqueness across themes', () => {
-  it('model-16 tab1 emoji do not overlap between themes', () => {
+  it('model-16 tab1 emoji do not overlap between themes or with 🙂 chars', () => {
     const model16 = THEMES.filter(t => t.model === 16 && t.tab1);
-    const all = new Map<string, string>(); // normalized emoji → theme id
+    const all = new Map<string, string>(); // normalized emoji → source description
+    // Include 🙂 theme chars so model-16 emoji cannot overlap with them.
+    const smileTheme = THEME_MAP.get('🙂');
+    if (smileTheme?.chars) {
+      for (const ch of [...smileTheme.chars]) {
+        const norm = stripFE0F(ch).trim();
+        all.set(norm, '🙂 chars');
+      }
+    }
     for (const theme of model16) {
       for (const token of theme.tab1!) {
         const norm = stripFE0F(token).trim();
         if (/^[\p{L}\p{N}]/u.test(norm)) continue; // skip text tokens
         if (all.has(norm)) {
-          throw new Error(`Emoji "${token}" in ${theme.id} tab1 also in ${all.get(norm)} tab1`);
+          throw new Error(`Emoji "${token}" in ${theme.id} tab1 also in ${all.get(norm)}`);
         }
-        all.set(norm, theme.id);
+        all.set(norm, `${theme.id} tab1`);
       }
     }
   });

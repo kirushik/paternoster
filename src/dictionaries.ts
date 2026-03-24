@@ -12,7 +12,7 @@ export interface Theme {
   readonly base?: number;
   /** model-1024: string of 1024 characters, one per token. */
   readonly chars?: string;
-  /** model-256: 256 words, space-delimited. */
+  /** model-4096 structured mode: 256 space-delimited words. */
   readonly words?: string;
   readonly sep?: readonly string[];
   /** TTS language code (default: 'ru-RU') */
