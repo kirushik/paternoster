@@ -22,7 +22,7 @@ export const COMP_SQUASH_ONLY = 2; // 0b10
 
 // ── Broadcast frame discriminators (6-bit values, stored in flags byte bits 5-0) ──
 
-export const BROADCAST_SIGNED_TAG   = 0x02;
+export const BROADCAST_SIGNED_TAG   = 0x02; // 2-byte fingerprint + XEdDSA sig (67 bytes overhead)
 export const BROADCAST_UNSIGNED_TAG = 0x03;
 
 // ── CONTACT check byte ─────────────────────────────────

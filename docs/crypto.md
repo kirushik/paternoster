@@ -33,7 +33,8 @@ Headerless frames — every frame starts with random bytes for optimal steganogr
 | MSG | `[seed:6][ciphertext][tag:8]` | **14 bytes** |
 | INTRO | `[eph_pub:32][ciphertext][tag:8]` | **40 bytes** (seedless) |
 | CONTACT | `[pub:32][check:2]` | **34 bytes** |
-| BROADCAST_SIGNED | `[flags:1][x25519_pub:32][ed25519_pub:32][compressed][sig:64]` | **129 bytes** |
+| BROADCAST_SIGNED | `[flags:1][x25519_pub:32][compressed][xeddsa_sig:64]` | **97 bytes** |
+| BROADCAST_SIGNED_COMPACT | `[flags:1][x25519_fp:2][compressed][xeddsa_sig:64]` | **67 bytes** |
 | BROADCAST_UNSIGNED | `[flags:1][compressed][check:2]` | **3 bytes** |
 
 **Frame type detection order:**
@@ -135,40 +136,43 @@ check = contactCheckBytes(flags || compressed_message)
 ```
 3 bytes overhead. XOR-fold checksum (same algorithm as CONTACT). False positive: ~2^-22 (1/64 discriminator × 1/65536 checksum).
 
-**BROADCAST_SIGNED:**
+**BROADCAST_SIGNED (standard):**
 ```
-data = [flags:1][x25519_pub:32][ed25519_pub:32][compressed_message:N]
-sig  = Ed25519.sign(ed25519_priv, data)
+data = [flags:1][x25519_pub:32][compressed_message:N]
+sig  = XEdDSA.sign(x25519_priv, data)
 wire = data || sig
 ```
-129 bytes overhead. Signature covers everything except itself.
+97 bytes overhead. XEdDSA signature — signs with X25519 key directly.
 
-### Ed25519 Signing for Broadcast
-
-Ed25519 signing keys are derived from the X25519 identity key via HKDF:
-
+**BROADCAST_SIGNED_COMPACT:**
 ```
-ed25519_seed = HKDF(
-  salt = "paternoster-sign-v1",
-  IKM  = x25519_private_key,
-  info = "ed25519",
-  L    = 32
-)
+data = [flags:1][x25519_fp:2][compressed_message:N]
+sig  = XEdDSA.sign(x25519_priv, data)
+wire = data || sig
 ```
+67 bytes overhead. 2-byte fingerprint (first 2 bytes of SHA-256(x25519_pub)) instead of full key.
 
-Imported via PKCS8 with Ed25519 OID (identical header to X25519, one byte different: `0x6e` → `0x70`).
+### XEdDSA Signing for Broadcast
 
-**Identity binding:** The Ed25519 public key is not mathematically derivable from the X25519 public key. Binding uses TOFU — on first verified signed broadcast from a contact, the ed25519 public key is cached in the contact record. Subsequent broadcasts check the cached key.
+Based on Signal's XEdDSA specification (Trevor Perrin, 2016). Signs with the X25519 private key directly — no separate Ed25519 keypair needed.
+
+**Why XEdDSA?** Montgomery (X25519) and twisted Edwards (Ed25519) curves are birationally equivalent. The same scalar works for both ECDH and signing. This eliminates the 32-byte ed25519_pub from the wire format (vs the HKDF-derived approach).
+
+**Signing:** Inline BigInt Ed25519 arithmetic. The X25519 private scalar (already clamped) is used directly. If the corresponding Edwards public key has odd x-coordinate, the scalar is negated mod L to force even x (sign bit 0). Deterministic nonce via `SHA-512(0xFE*32 || scalar || message)`.
+
+**Verification:** Convert X25519 public key to Edwards compressed point via birational map: `y = (u - 1) / (u + 1) mod p`, sign bit 0. Then standard Web Crypto `Ed25519.verify()`.
+
+**Montgomery → Edwards conversion:** The birational map `y = (u - 1) * (u + 1)^(-1) mod p` converts any X25519 u-coordinate to an Edwards y-coordinate. The sign is always 0 (XEdDSA convention). This is a pure BigInt computation (~10 lines) with no external dependencies.
 
 ## PKCS8 Wrapping
 
-Web Crypto doesn't support raw X25519/Ed25519 private key import. We construct a PKCS8 ASN.1 wrapper: a fixed 16-byte header followed by the 32-byte raw key. The only difference between X25519 and Ed25519 headers is the OID byte (index 11): `0x6e` (X25519, OID 1.3.101.110) vs `0x70` (Ed25519, OID 1.3.101.112).
+Web Crypto doesn't support raw X25519 private key import. We construct a PKCS8 ASN.1 wrapper: a fixed 16-byte header followed by the 32-byte raw key.
 
 ## Files
 
 - `src/crypto.ts` — X25519 ECDH, AES-GCM encryption, HKDF key derivation
-- `src/sign.ts` — Ed25519 key derivation, signing, verification
-- `src/broadcast.ts` — broadcast frame serialization and parsing
+- `src/sign.ts` — XEdDSA signing (inline BigInt Ed25519 arithmetic), Montgomery↔Edwards conversion, Web Crypto verification
+- `src/broadcast.ts` — broadcast frame serialization and parsing (standard + compact modes)
 - `src/wire.ts` — P2P wire format serialization and parsing, shared constants
 
 ## Gotchas

@@ -19,13 +19,11 @@ import {
   getContactKey,
   getSelectedContactId,
   setSelectedContactId,
-  cacheEd25519Key,
 } from './contacts';
 import { speak, stopSpeaking, isSpeaking, hasVoiceForLang, onVoicesChanged } from './tts';
 import { exportIdentity, importIdentity } from './identity';
 import { loadChat, addChatMessage, clearChat, randomChatId } from './chat';
-import { tryParseBroadcastSigned, tryParseBroadcastUnsigned, serializeBroadcastSigned, serializeBroadcastUnsigned } from './broadcast';
-import { deriveSigningKeys, type SigningKeys } from './sign';
+import { tryParseBroadcastSigned, tryParseBroadcastUnsigned, serializeBroadcastSigned, serializeBroadcastUnsigned, pubFingerprint } from './broadcast';
 
 // ── State ───────────────────────────────────────────────
 
@@ -36,8 +34,7 @@ let selectedContactId: string | null = null;
 let selectedTheme: ThemeId = 'БОЖЕ';
 let lastDecodedSender: string | null = null;
 let broadcastMode = false;
-let broadcastSigned = true;
-let signingKeys: SigningKeys | null = null;
+let broadcastSigned = false;
 let copyableText = '';
 let copyLabel = '📋 Скопировать';
 let ttsText = '';
@@ -49,6 +46,8 @@ let pendingNewContact: {
   isBroadcast?: boolean;
 } | null = null;
 const contactCodes = new Map<string, string>(); // publicKeyHex → "XXXX XXXX XXXX XXXX"
+const contactFpCache = new Map<string, Uint8Array>(); // publicKeyHex → 2-byte fingerprint
+let myFpCache: Uint8Array | null = null;
 
 // ── DOM refs ────────────────────────────────────────────
 
@@ -78,9 +77,6 @@ async function init(): Promise<void> {
   contacts = loadContacts();
   selectedContactId = getSelectedContactId();
   selectedTheme = (storageGet(STORAGE.selectedTheme) as ThemeId) || 'БОЖЕ';
-
-  // Derive Ed25519 signing keys for broadcast (non-blocking)
-  deriveSigningKeys(myPrivateKey).then(keys => { signingKeys = keys; }).catch(() => {});
 
   render();
   wireEvents();
@@ -138,7 +134,12 @@ async function refreshContactCodes(): Promise<void> {
     if (!contactCodes.has(hex)) {
       contactCodes.set(hex, await contactCode(key));
     }
+    if (!contactFpCache.has(hex)) {
+      contactFpCache.set(hex, await pubFingerprint(key));
+    }
   }));
+  // Cache own fingerprint
+  if (!myFpCache) myFpCache = await pubFingerprint(myPublicKey);
   // Update contact pill titles with codes
   for (const c of contacts) {
     const btn = contactsEl.querySelector(`[data-id="${c.id}"]`) as HTMLElement | null;
@@ -680,11 +681,10 @@ async function handleBroadcastEncode(plaintext: string): Promise<void> {
     const { payload: compressed, compMode } = compress(plaintext);
     let wireFrame: Uint8Array;
 
-    if (broadcastSigned && signingKeys) {
+    if (broadcastSigned) {
       wireFrame = await serializeBroadcastSigned(
         compressed, compMode,
-        myPublicKey, signingKeys.publicKeyRaw,
-        signingKeys.privateKey,
+        myPublicKey, myPrivateKey,
       );
       setOutputLabel('Подписанная публикация');
     } else {
@@ -830,11 +830,23 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
     }
   }
 
-  // 3. Try as BROADCAST_SIGNED
-  const signed = await tryParseBroadcastSigned(bytes);
+  // 3. Try as BROADCAST_SIGNED (fingerprint lookup against known contacts)
+  const signed = await tryParseBroadcastSigned(bytes, (fp) => {
+    for (const c of contacts) {
+      const key = getContactKey(c);
+      // Compare fingerprint (first 2 bytes of SHA-256 — precomputed would be faster but this is fine for small lists)
+      // We can't call async pubFingerprint here, so do a sync comparison via contactFingerprintCache
+      if (contactFpCache.get(c.publicKeyHex)?.[0] === fp[0] && contactFpCache.get(c.publicKeyHex)?.[1] === fp[1]) {
+        return key;
+      }
+    }
+    // Also check own key
+    if (myFpCache && myFpCache[0] === fp[0] && myFpCache[1] === fp[1]) return myPublicKey;
+    return null;
+  });
   if (signed) {
     const plaintext = decompress(signed.compressed, signed.compMode);
-    await handleDecodedBroadcast(plaintext, signed.x25519Pub, signed.ed25519Pub, _theme);
+    await handleDecodedBroadcast(plaintext, signed.x25519Pub ?? null, _theme);
     return;
   }
 
@@ -861,26 +873,19 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
   await handleEncode(inputEl.value.trim());
 }
 
-/** Handle a decoded signed broadcast. */
+/** Handle a decoded signed broadcast. x25519Pub is set when signature was verified against a known contact. */
 async function handleDecodedBroadcast(
   plaintext: string,
-  x25519Pub: Uint8Array,
-  ed25519Pub: Uint8Array,
+  x25519Pub: Uint8Array | null,
   _theme: ThemeId,
 ): Promise<void> {
-  const knownSender = findContactByKey(x25519Pub);
+  const knownSender = x25519Pub ? findContactByKey(x25519Pub) : null;
   outputEl.textContent = plaintext;
   ttsText = inputEl.value.trim();
 
   if (knownSender) {
-    // TOFU: cache ed25519 key
-    const ed25519Hex = u8hex(ed25519Pub);
-    const tofuResult = cacheEd25519Key(knownSender.id, ed25519Hex);
-    contacts = loadContacts();
-
-    const tofuNote = tofuResult === 'mismatch' ? ' · ⚠ ключ подписи изменился!' : '';
     lastDecodedSender = knownSender.name;
-    setOutputLabel(`Публикация · от ${knownSender.name}${tofuNote}`);
+    setOutputLabel(`Публикация · от ${knownSender.name}`);
     setCopyableText(plaintext, 'Скопировать текст');
 
     // Add to chat history as broadcast
@@ -904,18 +909,10 @@ async function handleDecodedBroadcast(
     setCopyableText('', '📋 Скопировать');
     ttsText = '';
   } else {
-    // Unknown sender — offer to save contact
+    // Signed but sender unknown (fingerprint didn't match any contact)
     lastDecodedSender = null;
-    setOutputLabel('Публикация · от неизвестного отправителя');
+    setOutputLabel('Публикация · подписано (отправитель не в контактах)');
     setCopyableText(plaintext, 'Скопировать текст');
-    pendingNewContact = {
-      senderKey: x25519Pub,
-      plaintext,
-      encoded: inputEl.value.trim(),
-      theme: _theme,
-      isBroadcast: true,
-    };
-    addSaveContactBtn();
   }
   updateStatus();
 }

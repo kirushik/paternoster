@@ -11,8 +11,6 @@ export interface Contact {
   publicKeyHex: string;
   addedAt: number;
   keyExchangeConfirmed: boolean;
-  /** Ed25519 signing public key, cached on first signed broadcast (TOFU). */
-  ed25519PublicKeyHex?: string;
 }
 
 /** Generate a random ID. */
@@ -124,19 +122,6 @@ export function confirmKeyExchange(id: string): void {
 /** Get a contact's public key as Uint8Array. */
 export function getContactKey(contact: Contact): Uint8Array {
   return hexU8(contact.publicKeyHex);
-}
-
-/** Cache a contact's Ed25519 signing public key (TOFU). Returns 'new' | 'match' | 'mismatch'. */
-export function cacheEd25519Key(id: string, ed25519Hex: string): 'new' | 'match' | 'mismatch' {
-  const contacts = loadContacts();
-  const contact = contacts.find(c => c.id === id);
-  if (!contact) return 'new';
-  if (!contact.ed25519PublicKeyHex) {
-    contact.ed25519PublicKeyHex = ed25519Hex;
-    saveContacts(contacts);
-    return 'new';
-  }
-  return contact.ed25519PublicKeyHex === ed25519Hex ? 'match' : 'mismatch';
 }
 
 /** Get the selected contact ID from localStorage. */
