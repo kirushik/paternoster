@@ -131,6 +131,47 @@ test.describe('signed broadcast with identity verification', () => {
     await expect(page.locator('#output')).toHaveText(broadcastText);
   });
 
+  test('duplicate signed broadcast is deduplicated in chat', async ({ browser }) => {
+    const aliceCtx = await browser.newContext();
+    await aliceCtx.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const alice = await aliceCtx.newPage();
+
+    const bobCtx = await browser.newContext();
+    await bobCtx.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const bob = await bobCtx.newPage();
+
+    await alice.goto('http://localhost:5199');
+    await bob.goto('http://localhost:5199');
+    await alice.waitForSelector('#input');
+    await bob.waitForSelector('#input');
+
+    // Key exchange
+    await alice.click('[data-id="self"]');
+    await alice.waitForTimeout(200);
+    const aliceToken = await alice.locator('.invite-token').textContent();
+    await bob.fill('#input', aliceToken!);
+    await fillDialogAndConfirm(bob, { 'Имя контакта': 'Alice' });
+    await expect(bob.locator('.contact-pill', { hasText: 'Alice' })).toBeVisible();
+    await bob.waitForTimeout(500);
+
+    // Alice sends signed broadcast
+    const encoded = await composeBroadcast(alice, 'Один раз', true);
+
+    // Bob receives first time → 1 broadcast bubble
+    await bob.locator('.contact-pill', { hasText: 'Alice' }).click();
+    await bob.fill('#input', encoded);
+    await expect(bob.locator('#input')).toHaveValue('', { timeout: 5000 });
+    await expect(bob.locator('.chat-message.broadcast')).toHaveCount(1);
+
+    // Bob receives same broadcast again → still 1 bubble (deduplicated)
+    await bob.fill('#input', encoded);
+    await expect(bob.locator('#input')).toHaveValue('', { timeout: 5000 });
+    await expect(bob.locator('.chat-message.broadcast')).toHaveCount(1);
+
+    await alice.close(); await bob.close();
+    await aliceCtx.close(); await bobCtx.close();
+  });
+
   test('signed broadcast from unknown sender shows fingerprint', async ({ browser }) => {
     // Alice and Bob do NOT exchange contacts
 
