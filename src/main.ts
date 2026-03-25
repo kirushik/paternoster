@@ -43,7 +43,6 @@ let pendingNewContact: {
   plaintext: string;
   encoded: string;
   theme: ThemeId;
-  isBroadcast?: boolean;
 } | null = null;
 const contactCodes = new Map<string, string>(); // publicKeyHex → "XXXX XXXX XXXX XXXX"
 
@@ -81,6 +80,9 @@ async function init(): Promise<void> {
 
   // Pre-compute verification codes (async, updates UI when ready)
   refreshContactCodes();
+
+  // Register voiceschanged listener once (not in wireEvents, which re-runs on mode toggle)
+  onVoicesChanged(updateTtsAvailability);
 
   // Check URL hash for invite token
   await checkHashInvite();
@@ -544,9 +546,8 @@ function wireEvents(): void {
     processInput();
   });
 
-  // TTS: check voice availability on init and when voices load asynchronously
+  // TTS: check voice availability on init
   updateTtsAvailability();
-  onVoicesChanged(updateTtsAvailability);
 
   contactsEl.addEventListener('click', (e) => {
     // Check if × delete button was clicked
@@ -1088,7 +1089,7 @@ async function handleSavePendingContact(): Promise<void> {
     senderName: name,
     timestamp: Date.now(),
     theme: pendingNewContact.theme,
-    type: pendingNewContact.isBroadcast ? 'broadcast' : 'message',
+    type: 'message',
   });
 
   pendingNewContact = null;
