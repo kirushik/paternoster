@@ -14,13 +14,11 @@ async function composeBroadcast(
     await page.waitForSelector('#input[placeholder*="публикации"]');
   }
 
-  // Set signing state — check current and toggle only if needed
-  const toggleBtn = page.locator('#broadcast-sign-toggle');
-  const currentText = await toggleBtn.textContent();
-  const currentlySigned = currentText === 'Подписано';
-  if (signed !== currentlySigned) {
-    await toggleBtn.click();
-    await expect(toggleBtn).toHaveText(signed ? 'Подписано' : 'Без подписи');
+  // Set signing state via checkbox
+  const signCheckbox = page.locator('#broadcast-sign-toggle');
+  const currentlyChecked = await signCheckbox.isChecked();
+  if (signed !== currentlyChecked) {
+    await signCheckbox.click();
   }
 
   // Type message and wait for output
@@ -32,9 +30,15 @@ async function composeBroadcast(
   return (await output.textContent())!;
 }
 
-/** Leave broadcast mode back to messaging. */
-async function exitBroadcastMode(page: import('@playwright/test').Page): Promise<void> {
+/** Leave broadcast mode via footer toggle button. */
+async function exitBroadcastModeViaToggle(page: import('@playwright/test').Page): Promise<void> {
   await page.click('#mode-toggle');
+  await page.waitForSelector('#input[placeholder*="Вставьте"]');
+}
+
+/** Leave broadcast mode via banner close button. */
+async function exitBroadcastModeViaBanner(page: import('@playwright/test').Page): Promise<void> {
+  await page.click('#broadcast-exit');
   await page.waitForSelector('#input[placeholder*="Вставьте"]');
 }
 
@@ -46,14 +50,178 @@ test.describe('XEdDSA browser verification', () => {
     const encoded = await composeBroadcast(page, 'Тест в браузере', true);
 
     // Exit broadcast mode and paste the encoded text back
-    await exitBroadcastMode(page);
+    await exitBroadcastModeViaToggle(page);
     await page.fill('#input', encoded);
     await page.waitForTimeout(1000);
 
-    // Self is not a contact — shows as unknown sender with code
-    const label = await page.locator('#output-mode-label').textContent();
-    expect(label).toMatch(/^Публикация · неизвестный отправитель/);
+    // Own signed broadcast — shows as "Ваша публикация"
+    await expect(page.locator('#output-mode-label')).toHaveText('Ваша публикация');
     await expect(page.locator('#output')).toHaveText('Тест в браузере');
+  });
+});
+
+test.describe('broadcast mode visual distinction and exit', () => {
+  test('broadcast mode applies warm background and shows banner', async ({ page }) => {
+    await page.goto('http://localhost:5199');
+    await page.waitForSelector('#input');
+
+    // Regular mode — no banner, no broadcast-active class
+    await expect(page.locator('#broadcast-banner')).toHaveCount(0);
+    const bodyClassBefore = await page.evaluate(() => document.body.className);
+    expect(bodyClassBefore).not.toContain('broadcast-active');
+
+    // Enter broadcast mode
+    await page.click('#mode-toggle');
+    await page.waitForSelector('#broadcast-banner');
+
+    // Banner visible with label and close button
+    await expect(page.locator('.broadcast-banner-label')).toContainText('Публикация');
+    await expect(page.locator('#broadcast-exit')).toBeVisible();
+
+    // Body has broadcast-active class (warm background)
+    const bodyClassAfter = await page.evaluate(() => document.body.className);
+    expect(bodyClassAfter).toContain('broadcast-active');
+  });
+
+  test('banner close button exits broadcast mode', async ({ page }) => {
+    await page.goto('http://localhost:5199');
+    await page.waitForSelector('#input');
+
+    // Enter broadcast mode
+    await page.click('#mode-toggle');
+    await page.waitForSelector('#broadcast-banner');
+
+    // Exit via banner close button
+    await exitBroadcastModeViaBanner(page);
+
+    // Banner gone, broadcast-active removed
+    await expect(page.locator('#broadcast-banner')).toHaveCount(0);
+    const bodyClass = await page.evaluate(() => document.body.className);
+    expect(bodyClass).not.toContain('broadcast-active');
+  });
+
+  test('footer toggle also exits broadcast mode', async ({ page }) => {
+    await page.goto('http://localhost:5199');
+    await page.waitForSelector('#input');
+
+    await page.click('#mode-toggle');
+    await page.waitForSelector('#broadcast-banner');
+
+    // Exit via footer toggle
+    await exitBroadcastModeViaToggle(page);
+    await expect(page.locator('#broadcast-banner')).toHaveCount(0);
+  });
+});
+
+test.describe('broadcast mode auto-detect pasted content', () => {
+  test('pasting own signed broadcast in broadcast mode shows decoded', async ({ page }) => {
+    await page.goto('http://localhost:5199');
+    await page.waitForSelector('#input');
+
+    // Compose a signed broadcast
+    const encoded = await composeBroadcast(page, 'Мой тест', true);
+
+    // Clear input, paste the broadcast back while still in broadcast mode
+    await page.fill('#input', '');
+    await page.waitForTimeout(200);
+    await page.fill('#input', encoded);
+    await page.waitForTimeout(1000);
+
+    // Should decode as own broadcast, stay in broadcast mode
+    await expect(page.locator('#output-mode-label')).toHaveText('Ваша публикация');
+    await expect(page.locator('#output')).toHaveText('Мой тест');
+    // Banner still visible — still in broadcast mode
+    await expect(page.locator('#broadcast-banner')).toBeVisible();
+  });
+
+  test('pasting unsigned broadcast in broadcast mode shows decoded', async ({ page }) => {
+    await page.goto('http://localhost:5199');
+    await page.waitForSelector('#input');
+
+    // Compose an unsigned broadcast
+    const encoded = await composeBroadcast(page, 'Анонимка', false);
+
+    // Clear and re-paste while in broadcast mode
+    await page.fill('#input', '');
+    await page.waitForTimeout(200);
+    await page.fill('#input', encoded);
+    await page.waitForTimeout(500);
+
+    // Should decode in broadcast mode
+    await expect(page.locator('#output-mode-label')).toHaveText('Публикация · без подписи');
+    await expect(page.locator('#output')).toHaveText('Анонимка');
+    await expect(page.locator('#broadcast-banner')).toBeVisible();
+  });
+
+  test('pasting P2P encrypted message in broadcast mode auto-switches to regular', async ({ browser }) => {
+    const aliceCtx = await browser.newContext();
+    await aliceCtx.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const alice = await aliceCtx.newPage();
+
+    const bobCtx = await browser.newContext();
+    await bobCtx.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const bob = await bobCtx.newPage();
+
+    await alice.goto('http://localhost:5199');
+    await bob.goto('http://localhost:5199');
+    await alice.waitForSelector('#input');
+    await bob.waitForSelector('#input');
+
+    // Key exchange: Bob adds Alice
+    await alice.click('[data-id="self"]');
+    await alice.waitForTimeout(200);
+    const aliceToken = await alice.locator('.invite-token').textContent();
+
+    await bob.fill('#input', aliceToken!);
+    await fillDialogAndConfirm(bob, { 'Имя контакта': 'Alice' });
+    await expect(bob.locator('.contact-pill', { hasText: 'Alice' })).toBeVisible();
+
+    // Alice adds Bob
+    await bob.click('[data-id="self"]');
+    await bob.waitForTimeout(200);
+    const bobToken = await bob.locator('.invite-token').textContent();
+    await alice.fill('#input', bobToken!);
+    await fillDialogAndConfirm(alice, { 'Имя контакта': 'Bob' });
+
+    // Alice sends an INTRO message to Bob
+    await alice.locator('.contact-pill', { hasText: 'Bob' }).click();
+    await alice.fill('#input', 'Привет Боб');
+    await alice.waitForTimeout(500);
+    const encodedMsg = await alice.locator('#output').textContent();
+
+    // Bob enters broadcast mode
+    await bob.click('#mode-toggle');
+    await bob.waitForSelector('#broadcast-banner');
+
+    // Bob pastes Alice's encrypted message while in broadcast mode
+    await bob.fill('#input', encodedMsg!);
+    await bob.waitForTimeout(2000);
+
+    // Should auto-switch to regular mode (banner gone)
+    await expect(bob.locator('#broadcast-banner')).toHaveCount(0);
+    const bodyClass = await bob.evaluate(() => document.body.className);
+    expect(bodyClass).not.toContain('broadcast-active');
+
+    await alice.close(); await bob.close();
+    await aliceCtx.close(); await bobCtx.close();
+  });
+
+  test('plain text in broadcast mode still encodes as broadcast', async ({ page }) => {
+    await page.goto('http://localhost:5199');
+    await page.waitForSelector('#input');
+
+    // Enter broadcast mode
+    await page.click('#mode-toggle');
+    await page.waitForSelector('#broadcast-banner');
+
+    // Type plain text — should encode as broadcast
+    await page.fill('#input', 'Простой текст');
+    await page.waitForTimeout(500);
+
+    const label = await page.locator('#output-mode-label').textContent();
+    expect(label).toMatch(/^Публикация/);
+    // Should still be in broadcast mode
+    await expect(page.locator('#broadcast-banner')).toBeVisible();
   });
 });
 
@@ -122,7 +290,7 @@ test.describe('signed broadcast with identity verification', () => {
     await expect(page.locator('#output-mode-label')).toHaveText('Публикация без подписи');
 
     // Switch back to messaging mode and paste
-    await exitBroadcastMode(page);
+    await exitBroadcastModeViaToggle(page);
     await page.fill('#input', encoded);
     await page.waitForTimeout(300);
 

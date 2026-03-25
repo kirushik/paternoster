@@ -8,7 +8,7 @@ Tests across three layers: unit, integration, and E2E. Tests follow the project'
 
 **Integration tests** (Vitest, 41 tests) verify the full pipeline: plaintext → compress → encrypt → wire → stego → and back. These catch mismatches between modules (e.g., wire format serialized differently than expected by the decoder, or compression flags not handled by decompressor).
 
-**E2E tests** (Playwright, 25 tests) verify the actual browser experience. Page loads, key generation persists across reloads, typing produces encoded output, two browser contexts exchange messages with multi-round back-and-forth conversation, invite links work, TTS button calls speechSynthesis with the correct language, and every theme roundtrips correctly through two-party encode→decode. These catch DOM wiring bugs and browser API issues that unit tests can't see.
+**E2E tests** (Playwright, 42 tests) verify the actual browser experience. Page loads, key generation persists across reloads, typing produces encoded output, two browser contexts exchange messages with multi-round back-and-forth conversation, invite links work, TTS button calls speechSynthesis with the correct language, every theme roundtrips correctly through two-party encode→decode, and broadcast mode UX (warm background, banner exit, auto-detect of pasted content including P2P auto-switch). These catch DOM wiring bugs and browser API issues that unit tests can't see.
 
 ## Commands
 
@@ -49,7 +49,7 @@ tests/
     ├── conversation.spec.ts  # Full multi-round conversation with key exchange confirmation (1)
     ├── crypto-roundtrip.spec.ts  # Alice↔Bob single message exchange (1)
     ├── theme-roundtrip.spec.ts   # Per-theme encode→decode roundtrip, all 8 themes (8)
-    ├── broadcast.spec.ts     # Signed/unsigned broadcast, identity verification, deduplication (5)
+    ├── broadcast.spec.ts     # Broadcast mode UX (banner, warm background, auto-detect), signed/unsigned, verification, dedup (12)
     └── tts.spec.ts           # Button behavior, language per theme (5)
 ```
 

@@ -16,11 +16,39 @@ The output always appears in a read-only label below the field. There is no "enc
 
 ## Broadcast Mode
 
-A toggle button in the bottom-right corner (next to the download button) switches between messaging mode and broadcast mode. In broadcast mode:
+### Entering and Exiting
+
+A subtle toggle button (📢, half-opacity) in the bottom-right corner enters broadcast mode. Entry is intentionally obscure — a discovery for power users. Exiting is obvious: a prominent amber banner at the top of the page with a ✕ close button. The footer toggle also works for exit but the banner is the primary affordance. This asymmetry is by design: getting in is a discovery, getting out is always one tap away.
+
+### Visual Transformation
+
+Broadcast mode transforms the interface from a chat app into a composition tool:
+- **Background shifts** from cool gray (`#fafafa`) to warm cream (`#f9f0e1`) — confidently visible, not subtle
+- **Input field** becomes the hero: taller (180px min), slightly larger text (1.0625rem), amber focus border instead of blue
+- **Output area** warms to match (`#f5ead6`)
+- **Status text** uses warm amber (`#92400E`)
+- **body.broadcast-active** CSS class drives all overrides via cascade
+
+The `broadcast-active` class is toggled on `document.body` by `enterBroadcastMode()` / `exitBroadcastMode()`.
+
+### Composition Controls
+
 - Contacts bar and chat area are hidden
-- Input is always encoded as a broadcast frame (never decoded)
-- A "Подписано / Без подписи" toggle controls whether the broadcast includes an XEdDSA signature (signed directly with the sender's X25519 key)
+- A "Подписано / Без подписи" toggle (above the textarea, near the composition area) controls whether the broadcast includes an XEdDSA signature. This toggle is a per-composition decision, so it sits near the input rather than in the banner.
 - The amber accent color on the sign toggle and broadcast chat bubbles visually distinguishes broadcast content from P2P messages
+
+### Smart Input Handling (Auto-Detect in Broadcast Mode)
+
+Broadcast mode extends the app's core auto-detect philosophy rather than breaking it. When content is pasted:
+
+1. **Try to decode first** — invite tokens, steganographic messages
+2. **Broadcasts** (signed or unsigned) are decoded in-place and shown while staying in broadcast mode
+3. **P2P encrypted messages** (MSG/INTRO) trigger a silent auto-switch to regular mode, then decode normally
+4. **Contact tokens** trigger a silent auto-switch to regular mode, then import dialog
+5. **Own signed broadcasts** show decoded with label "Ваша публикация" (useful for verification)
+6. **Unrecognized text** is encoded as a broadcast (the default composition behavior)
+
+The auto-switch is silent — no toast or notification. The UI transformation (banner disappearing, contacts appearing, warm background fading to cool) IS the notification.
 
 In messaging mode, broadcast messages from others are auto-detected and decoded normally. Signed broadcasts from known contacts appear in the contact's chat history with distinct amber-accented styling.
 
@@ -53,6 +81,7 @@ The app makes its internal state visible through three coordinated signals:
    - "Контакт добавлен" — after adding a contact
    - "Резервная копия" — after identity export
    - "Профиль восстановлен" — after identity import
+   - "Ваша публикация" — own signed broadcast decoded for verification
    - Hidden when output is empty
 
 2. **Dynamic copy button** — label changes based on what will be copied:
