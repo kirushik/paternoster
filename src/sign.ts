@@ -134,7 +134,14 @@ export function montgomeryToEdwards(x25519Pub: Uint8Array): Uint8Array {
  * negate scalar if public key x-coordinate is odd (force sign bit 0).
  */
 function xeddsaKeyPair(x25519Priv: Uint8Array): { a: bigint; pubCompressed: Uint8Array } {
-  let a = bytesToBigInt(x25519Priv);
+  // Clamp private key to match X25519 convention.
+  // Chrome exports raw seed (unclamped); Node.js exports clamped scalar.
+  // Clamping is idempotent — safe to always apply.
+  const clamped = x25519Priv.slice();
+  clamped[0] &= 248;
+  clamped[31] &= 127;
+  clamped[31] |= 64;
+  let a = bytesToBigInt(clamped);
   const A = extToAffine(extScalarMult(a, BASE_EXT));
   if (A.x & 1n) {
     a = L - (a % L); // negate scalar mod L

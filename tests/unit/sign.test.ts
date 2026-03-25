@@ -60,6 +60,35 @@ describe('XEdDSA sign and verify', () => {
   });
 });
 
+describe('XEdDSA sign→verify consistency', () => {
+  it('signature verifies with both xeddsaVerify and raw Web Crypto Ed25519', async () => {
+    const kp = await generateKeyPair();
+    const data = new TextEncoder().encode('consistency check');
+    const sig = await xeddsaSign(kp.privateKey, data);
+
+    // Method 1: xeddsaVerify (converts montgomery→edwards internally)
+    const ok1 = await xeddsaVerify(kp.publicKey, sig, data);
+
+    // Method 2: manually convert and use Web Crypto directly
+    const edPub = montgomeryToEdwards(kp.publicKey);
+    const pubKey = await crypto.subtle.importKey('raw', edPub, 'Ed25519', false, ['verify']);
+    const ok2 = await crypto.subtle.verify('Ed25519', pubKey, sig, data);
+
+    expect(ok1).toBe(true);
+    expect(ok2).toBe(true);
+  });
+
+  it('verifies across 10 random keypairs', async () => {
+    for (let i = 0; i < 10; i++) {
+      const kp = await generateKeyPair();
+      const data = new TextEncoder().encode(`test ${i}`);
+      const sig = await xeddsaSign(kp.privateKey, data);
+      const ok = await xeddsaVerify(kp.publicKey, sig, data);
+      expect(ok).toBe(true);
+    }
+  });
+});
+
 describe('montgomeryToEdwards', () => {
   it('produces 32-byte output', async () => {
     const kp = await generateKeyPair();

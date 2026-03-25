@@ -5,7 +5,6 @@ import {
   serializeBroadcastSigned,
   tryParseBroadcastUnsigned,
   tryParseBroadcastSigned,
-  pubFingerprint,
   packFlags,
   flagsCompMode,
   flagsTag,
@@ -75,27 +74,22 @@ describe('BROADCAST_SIGNED serialization (XEdDSA, 67-byte overhead)', () => {
     expect(frame.length).toBe(69);
   });
 
-  it('roundtrips with fingerprint lookup', async () => {
+  it('roundtrips with candidate keys', async () => {
     const kp = await generateKeyPair();
     const compressed = new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]);
     const frame = await serializeBroadcastSigned(compressed, COMP_SQUASH_ONLY, kp.publicKey, kp.privateKey);
-    const fp = await pubFingerprint(kp.publicKey);
 
-    const parsed = await tryParseBroadcastSigned(frame, (frameFp) => {
-      if (frameFp[0] === fp[0] && frameFp[1] === fp[1]) return kp.publicKey;
-      return null;
-    });
+    const parsed = await tryParseBroadcastSigned(frame, [kp.publicKey]);
     expect(parsed).not.toBeNull();
     expect(parsed!.compMode).toBe(COMP_SQUASH_ONLY);
     expect(parsed!.compressed).toEqual(compressed);
     expect(parsed!.x25519Pub).toEqual(kp.publicKey);
   });
 
-  it('returns unverified when no lookup provided', async () => {
+  it('returns unverified when no candidates provided', async () => {
     const kp = await generateKeyPair();
     const compressed = new Uint8Array([0x01]);
     const frame = await serializeBroadcastSigned(compressed, COMP_LITERAL, kp.publicKey, kp.privateKey);
-    // No lookup function — returns frame but x25519Pub is undefined
     const parsed = await tryParseBroadcastSigned(frame);
     expect(parsed).not.toBeNull();
     expect(parsed!.compressed).toEqual(compressed);
@@ -107,14 +101,51 @@ describe('BROADCAST_SIGNED serialization (XEdDSA, 67-byte overhead)', () => {
     const compressed = new Uint8Array([0x01]);
     const frame = await serializeBroadcastSigned(compressed, COMP_LITERAL, kp.publicKey, kp.privateKey);
     frame[frame.length - 1] ^= 0xFF;
-    const fp = await pubFingerprint(kp.publicKey);
-    const parsed = await tryParseBroadcastSigned(frame, (frameFp) => {
-      if (frameFp[0] === fp[0] && frameFp[1] === fp[1]) return kp.publicKey;
-      return null;
-    });
+    const parsed = await tryParseBroadcastSigned(frame, [kp.publicKey]);
     // Tampered: verification fails, returned without x25519Pub
     expect(parsed).not.toBeNull();
     expect(parsed!.x25519Pub).toBeUndefined();
+  });
+});
+
+describe('BROADCAST_SIGNED through stego roundtrip with candidate match', () => {
+  it('verifies after stego encode→decode (simulating full handleDecode flow)', async () => {
+    const { stegoEncode, stegoDecode } = await import('../../src/stego');
+    const { compress } = await import('../../src/compress');
+    const kp = await generateKeyPair();
+    const { payload: compressed, compMode } = compress('Тест');
+    const frame = await serializeBroadcastSigned(compressed, compMode, kp.publicKey, kp.privateKey);
+
+    // Stego roundtrip
+    const stegoText = stegoEncode(frame, 'БОЖЕ');
+    const decoded = stegoDecode(stegoText);
+    expect(decoded).not.toBeNull();
+
+    // Check discriminator survives stego
+    expect(flagsTag(decoded!.bytes[0])).toBe(BROADCAST_SIGNED_TAG);
+
+    // Verify with candidate key
+    const parsed = await tryParseBroadcastSigned(decoded!.bytes, [kp.publicKey]);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.x25519Pub).toBeDefined();
+  });
+});
+
+describe('BROADCAST_SIGNED candidate key via hex roundtrip', () => {
+  it('verifies when candidate key went through hex serialization (like localStorage)', async () => {
+    const { u8hex, hexU8 } = await import('../../src/utils');
+    const kp = await generateKeyPair();
+    const compressed = new Uint8Array([0x01, 0x02]);
+    const frame = await serializeBroadcastSigned(compressed, COMP_LITERAL, kp.publicKey, kp.privateKey);
+
+    // Simulate localStorage roundtrip: key → hex → back to Uint8Array
+    const hexKey = u8hex(kp.publicKey);
+    const restoredKey = hexU8(hexKey);
+
+    const parsed = await tryParseBroadcastSigned(frame, [restoredKey]);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.x25519Pub).toBeDefined();
+    expect(parsed!.x25519Pub).toEqual(restoredKey);
   });
 });
 

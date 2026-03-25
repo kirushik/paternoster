@@ -23,7 +23,7 @@ import {
 import { speak, stopSpeaking, isSpeaking, hasVoiceForLang, onVoicesChanged } from './tts';
 import { exportIdentity, importIdentity } from './identity';
 import { loadChat, addChatMessage, clearChat, randomChatId } from './chat';
-import { tryParseBroadcastSigned, tryParseBroadcastUnsigned, serializeBroadcastSigned, serializeBroadcastUnsigned, pubFingerprint } from './broadcast';
+import { tryParseBroadcastSigned, tryParseBroadcastUnsigned, serializeBroadcastSigned, serializeBroadcastUnsigned } from './broadcast';
 
 // ── State ───────────────────────────────────────────────
 
@@ -46,8 +46,6 @@ let pendingNewContact: {
   isBroadcast?: boolean;
 } | null = null;
 const contactCodes = new Map<string, string>(); // publicKeyHex → "XXXX XXXX XXXX XXXX"
-const contactFpCache = new Map<string, Uint8Array>(); // publicKeyHex → 2-byte fingerprint
-let myFpCache: Uint8Array | null = null;
 
 // ── DOM refs ────────────────────────────────────────────
 
@@ -134,12 +132,7 @@ async function refreshContactCodes(): Promise<void> {
     if (!contactCodes.has(hex)) {
       contactCodes.set(hex, await contactCode(key));
     }
-    if (!contactFpCache.has(hex)) {
-      contactFpCache.set(hex, await pubFingerprint(key));
-    }
   }));
-  // Cache own fingerprint
-  if (!myFpCache) myFpCache = await pubFingerprint(myPublicKey);
   // Update contact pill titles with codes
   for (const c of contacts) {
     const btn = contactsEl.querySelector(`[data-id="${c.id}"]`) as HTMLElement | null;
@@ -830,23 +823,12 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
     }
   }
 
-  // 3. Try as BROADCAST_SIGNED (fingerprint lookup against known contacts)
-  const signed = await tryParseBroadcastSigned(bytes, (fp) => {
-    for (const c of contacts) {
-      const key = getContactKey(c);
-      // Compare fingerprint (first 2 bytes of SHA-256 — precomputed would be faster but this is fine for small lists)
-      // We can't call async pubFingerprint here, so do a sync comparison via contactFingerprintCache
-      if (contactFpCache.get(c.publicKeyHex)?.[0] === fp[0] && contactFpCache.get(c.publicKeyHex)?.[1] === fp[1]) {
-        return key;
-      }
-    }
-    // Also check own key
-    if (myFpCache && myFpCache[0] === fp[0] && myFpCache[1] === fp[1]) return myPublicKey;
-    return null;
-  });
+  // 3. Try as BROADCAST_SIGNED (try all known keys as candidates)
+  const candidateKeys = [myPublicKey, ...contacts.map(c => getContactKey(c))];
+  const signed = await tryParseBroadcastSigned(bytes, candidateKeys);
   if (signed) {
     const plaintext = decompress(signed.compressed, signed.compMode);
-    await handleDecodedBroadcast(plaintext, signed.x25519Pub ?? null, _theme);
+    await handleDecodedBroadcast(plaintext, signed.x25519Pub ?? null, signed.fingerprint, _theme);
     return;
   }
 
@@ -877,6 +859,7 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
 async function handleDecodedBroadcast(
   plaintext: string,
   x25519Pub: Uint8Array | null,
+  fingerprint: Uint8Array,
   _theme: ThemeId,
 ): Promise<void> {
   const knownSender = x25519Pub ? findContactByKey(x25519Pub) : null;
@@ -909,9 +892,10 @@ async function handleDecodedBroadcast(
     setCopyableText('', '📋 Скопировать');
     ttsText = '';
   } else {
-    // Signed but sender unknown (fingerprint didn't match any contact)
+    // Signed but sender unknown — show fingerprint as pseudonymous identity
     lastDecodedSender = null;
-    setOutputLabel('Публикация · подписано (отправитель не в контактах)');
+    const fpHex = Array.from(fingerprint).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+    setOutputLabel(`Публикация · подпись ${fpHex}`);
     setCopyableText(plaintext, 'Скопировать текст');
   }
   updateStatus();

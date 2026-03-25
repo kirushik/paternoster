@@ -7,7 +7,6 @@ import {
   serializeBroadcastSigned,
   tryParseBroadcastUnsigned,
   tryParseBroadcastSigned,
-  pubFingerprint,
 } from '../../src/broadcast';
 import { type ThemeId, THEMES } from '../../src/dictionaries';
 
@@ -36,11 +35,7 @@ async function signedRoundtrip(plaintext: string, themeId: ThemeId): Promise<{
   expect(decoded).not.toBeNull();
 
   // Simulate recipient who has sender as contact
-  const fp = await pubFingerprint(sender.publicKey);
-  const parsed = await tryParseBroadcastSigned(decoded!.bytes, (frameFp) => {
-    if (frameFp[0] === fp[0] && frameFp[1] === fp[1]) return sender.publicKey;
-    return null;
-  });
+  const parsed = await tryParseBroadcastSigned(decoded!.bytes, [sender.publicKey]);
   expect(parsed).not.toBeNull();
   const result = decompress(parsed!.compressed, parsed!.compMode);
   return { result, verified: parsed!.x25519Pub !== undefined };

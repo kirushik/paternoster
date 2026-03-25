@@ -104,11 +104,11 @@ export function tryParseBroadcastUnsigned(data: Uint8Array): BroadcastUnsigned |
 
 /**
  * Try to parse as BROADCAST_SIGNED.
- * Uses fingerprint to look up sender, then verifies XEdDSA signature.
+ * Computes fingerprint for each candidate key and checks for a match, then verifies XEdDSA.
  */
 export async function tryParseBroadcastSigned(
   data: Uint8Array,
-  lookupByFingerprint?: (fp: Uint8Array) => Uint8Array | null,
+  candidateKeys?: Uint8Array[],
 ): Promise<BroadcastSigned | null> {
   if (data.length < MIN_SIGNED_SIZE) return null;
   if (flagsTag(data[0]) !== BROADCAST_SIGNED_TAG) return null;
@@ -118,17 +118,19 @@ export async function tryParseBroadcastSigned(
   const fingerprint = signedData.slice(1, 3);
   const compressed = signedData.slice(3);
 
-  // If we have a lookup function, try to find and verify the sender
-  if (lookupByFingerprint) {
-    const x25519Pub = lookupByFingerprint(fingerprint);
-    if (x25519Pub) {
-      const valid = await xeddsaVerify(x25519Pub, signature, signedData);
-      if (valid) {
-        return { compMode: flagsCompMode(data[0]), fingerprint, compressed, x25519Pub };
+  // Try each candidate key: compute fingerprint, compare, verify signature
+  if (candidateKeys) {
+    for (const key of candidateKeys) {
+      const fp = await pubFingerprint(key);
+      if (fp[0] === fingerprint[0] && fp[1] === fingerprint[1]) {
+        const valid = await xeddsaVerify(key, signature, signedData);
+        if (valid) {
+          return { compMode: flagsCompMode(data[0]), fingerprint, compressed, x25519Pub: key };
+        }
       }
     }
   }
 
-  // No lookup or fingerprint didn't match — return as unverified signed broadcast
+  // No match or no candidates — return as unverified signed broadcast
   return { compMode: flagsCompMode(data[0]), fingerprint, compressed };
 }
