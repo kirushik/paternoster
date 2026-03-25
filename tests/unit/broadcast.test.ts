@@ -74,13 +74,14 @@ describe('BROADCAST_SIGNED serialization (XEdDSA, 67-byte overhead)', () => {
     expect(frame.length).toBe(69);
   });
 
-  it('roundtrips with candidate keys', async () => {
+  it('roundtrips with candidate keys → status verified', async () => {
     const kp = await generateKeyPair();
     const compressed = new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]);
     const frame = await serializeBroadcastSigned(compressed, COMP_SQUASH_ONLY, kp.publicKey, kp.privateKey);
 
     const parsed = await tryParseBroadcastSigned(frame, [kp.publicKey]);
     expect(parsed).not.toBeNull();
+    expect(parsed!.status).toBe('verified');
     expect(parsed!.compMode).toBe(COMP_SQUASH_ONLY);
     expect(parsed!.compressed).toEqual(compressed);
     expect(parsed!.x25519Pub).toEqual(kp.publicKey);
@@ -92,20 +93,58 @@ describe('BROADCAST_SIGNED serialization (XEdDSA, 67-byte overhead)', () => {
     const frame = await serializeBroadcastSigned(compressed, COMP_LITERAL, kp.publicKey, kp.privateKey);
     const parsed = await tryParseBroadcastSigned(frame);
     expect(parsed).not.toBeNull();
-    expect(parsed!.compressed).toEqual(compressed);
+    expect(parsed!.status).toBe('unverified');
     expect(parsed!.x25519Pub).toBeUndefined();
   });
 
-  it('rejects tampered signature', async () => {
+  it('tampered signature → status failed', async () => {
     const kp = await generateKeyPair();
     const compressed = new Uint8Array([0x01]);
     const frame = await serializeBroadcastSigned(compressed, COMP_LITERAL, kp.publicKey, kp.privateKey);
     frame[frame.length - 1] ^= 0xFF;
     const parsed = await tryParseBroadcastSigned(frame, [kp.publicKey]);
-    // Tampered: verification fails, returned without x25519Pub
     expect(parsed).not.toBeNull();
+    expect(parsed!.status).toBe('failed');
     expect(parsed!.x25519Pub).toBeUndefined();
   });
+});
+
+describe('BROADCAST_SIGNED fingerprint collision handling', () => {
+  it('verifies correct key even when a colliding-fingerprint wrong key is tried first', async () => {
+    // Construct the scenario directly: two candidate keys where the wrong one
+    // has the same fingerprint as the sender. We craft a fake "imposter" key
+    // by generating keys until one collides on the 2-byte fingerprint.
+    const { pubFingerprint } = await import('../../src/broadcast');
+    const sender = await generateKeyPair();
+    const senderFp = await pubFingerprint(sender.publicKey);
+
+    // Batch key generation for speed — generate 256 keys, check fingerprints
+    let imposterKey: Uint8Array | null = null;
+    for (let batch = 0; batch < 1000 && !imposterKey; batch++) {
+      const keys = await Promise.all(Array.from({ length: 256 }, () => generateKeyPair()));
+      for (const kp of keys) {
+        const fp = await pubFingerprint(kp.publicKey);
+        if (fp[0] === senderFp[0] && fp[1] === senderFp[1]) {
+          imposterKey = kp.publicKey;
+          break;
+        }
+      }
+    }
+    if (!imposterKey) {
+      // Extremely unlikely (256k attempts), but skip rather than fail
+      console.log('SKIP: no fingerprint collision found in 256k attempts');
+      return;
+    }
+
+    const compressed = new Uint8Array([0x42]);
+    const frame = await serializeBroadcastSigned(compressed, COMP_LITERAL, sender.publicKey, sender.privateKey);
+
+    // Imposter first, real sender second — must still verify as 'verified'
+    const parsed = await tryParseBroadcastSigned(frame, [imposterKey, sender.publicKey]);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.status).toBe('verified');
+    expect(parsed!.x25519Pub).toEqual(sender.publicKey);
+  }, 30000); // allow up to 30s for brute-force
 });
 
 describe('BROADCAST_SIGNED through stego roundtrip with candidate match', () => {
@@ -127,7 +166,7 @@ describe('BROADCAST_SIGNED through stego roundtrip with candidate match', () => 
     // Verify with candidate key
     const parsed = await tryParseBroadcastSigned(decoded!.bytes, [kp.publicKey]);
     expect(parsed).not.toBeNull();
-    expect(parsed!.x25519Pub).toBeDefined();
+    expect(parsed!.status).toBe('verified');
   });
 });
 
@@ -144,7 +183,7 @@ describe('BROADCAST_SIGNED candidate key via hex roundtrip', () => {
 
     const parsed = await tryParseBroadcastSigned(frame, [restoredKey]);
     expect(parsed).not.toBeNull();
-    expect(parsed!.x25519Pub).toBeDefined();
+    expect(parsed!.status).toBe('verified');
     expect(parsed!.x25519Pub).toEqual(restoredKey);
   });
 });

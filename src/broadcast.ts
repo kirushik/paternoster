@@ -85,7 +85,9 @@ export interface BroadcastSigned {
   compMode: number;
   fingerprint: Uint8Array;
   compressed: Uint8Array;
-  /** Set after fingerprint lookup resolves the sender. */
+  /** 'verified' = signature valid for known contact, 'failed' = fingerprint matched but sig bad, 'unverified' = no matching fingerprint */
+  status: 'verified' | 'unverified' | 'failed';
+  /** Set only when status === 'verified'. */
   x25519Pub?: Uint8Array;
 }
 
@@ -118,19 +120,28 @@ export async function tryParseBroadcastSigned(
   const fingerprint = signedData.slice(1, 3);
   const compressed = signedData.slice(3);
 
-  // Try each candidate key: compute fingerprint, compare, verify signature
+  const base = { compMode: flagsCompMode(data[0]), fingerprint, compressed };
+
+  // Try each candidate key: compute fingerprint, compare, verify signature.
+  // Multiple candidates may share the same 2-byte fingerprint (collision-prone),
+  // so we must try ALL matching candidates before concluding 'failed'.
+  let sawMatchingFingerprint = false;
   if (candidateKeys) {
     for (const key of candidateKeys) {
       const fp = await pubFingerprint(key);
       if (fp[0] === fingerprint[0] && fp[1] === fingerprint[1]) {
+        sawMatchingFingerprint = true;
         const valid = await xeddsaVerify(key, signature, signedData);
         if (valid) {
-          return { compMode: flagsCompMode(data[0]), fingerprint, compressed, x25519Pub: key };
+          return { ...base, status: 'verified' as const, x25519Pub: key };
         }
       }
     }
   }
 
-  // No match or no candidates — return as unverified signed broadcast
-  return { compMode: flagsCompMode(data[0]), fingerprint, compressed };
+  // At least one fingerprint matched but all verifications failed → potential forgery
+  if (sawMatchingFingerprint) return { ...base, status: 'failed' as const };
+
+  // No matching fingerprint among candidates (unknown sender)
+  return { ...base, status: 'unverified' as const };
 }

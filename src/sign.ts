@@ -1,15 +1,20 @@
 /**
  * XEdDSA: Sign with X25519 keys, verify with Web Crypto Ed25519.
  *
- * Based on Signal's XEdDSA specification (Trevor Perrin, 2016).
- * Montgomery (X25519) and twisted Edwards (Ed25519) curves are
- * birationally equivalent — the same scalar works for both ECDH and signing.
+ * Custom signing construction inspired by Signal's XEdDSA specification
+ * (Trevor Perrin, 2016). Montgomery (X25519) and twisted Edwards (Ed25519)
+ * curves are birationally equivalent — the same clamped scalar works for
+ * both ECDH and signing.
  *
  * Signing uses inline BigInt Ed25519 arithmetic (no external library).
  * Verification converts the X25519 public key to Edwards form, then
- * delegates to Web Crypto Ed25519.verify().
+ * delegates to Web Crypto Ed25519.verify(). The verification side is
+ * entirely browser-native; only the signing path is custom code.
  *
- * NOT constant-time (BigInt). Acceptable: attacker sees stego text, not timing.
+ * NOT constant-time (BigInt). In this threat model, an attacker with
+ * same-origin JS execution already has localStorage access (and thus
+ * the private key), making timing attacks redundant. The main risk of
+ * this module is correctness of the custom arithmetic — see docs/crypto.md.
  */
 
 import { concatU8 } from './utils';

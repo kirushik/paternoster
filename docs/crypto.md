@@ -14,9 +14,9 @@ X25519 (Curve25519 ECDH) provides 128-bit security with 32-byte keys — the sho
 
 **Platform surveillance.** Messages traverse monitored platforms (Telegram, VK, email). The adversary scans for encrypted content patterns. Encryption prevents reading; steganographic encoding prevents detection. The crypto doesn't protect against device seizure (keys are in localStorage) or a compromised browser.
 
-**Not in scope:** forward secrecy (static key pairs). P2P messages are not digitally signed — sender identity is inferred from which contact key successfully decrypts (MSG) or from the sender key inside the encrypted envelope (INTRO). First-contact trust is TOFU unless users verify contact codes out-of-band. Broadcast messages can optionally be signed with Ed25519 (see below).
+**Not in scope:** forward secrecy (static key pairs). P2P messages are not digitally signed — sender identity is inferred from which contact key successfully decrypts (MSG) or from the sender key inside the encrypted envelope (INTRO). First-contact trust is TOFU unless users verify contact codes out-of-band. Broadcast messages can optionally carry a signature produced by a custom X25519-key-based signing construction inspired by XEdDSA; verification is performed through Web Crypto Ed25519 after public-key conversion (see below).
 
-**Deniable authentication:** ECDH is symmetric — `ECDH(Alice_priv, Bob_pub) = ECDH(Bob_priv, Alice_pub)`. Both parties can verify the other's identity but neither can prove authorship to a third party.
+**Deniable authentication (P2P only):** ECDH is symmetric — `ECDH(Alice_priv, Bob_pub) = ECDH(Bob_priv, Alice_pub)`. Both parties can verify the other's identity but neither can prove authorship to a third party. Signed broadcasts are NOT deniable — the signature is a public proof of authorship by the holder of the signing key.
 
 **Contact verification:** Each contact's public key has a short verification code (SHA-256 of public key, first 8 bytes, displayed as `XXXX XXXX XXXX XXXX`). Shown on hover over contact pills and in the "Я" view.
 
@@ -33,18 +33,17 @@ Headerless frames — every frame starts with random bytes for optimal steganogr
 | MSG | `[seed:6][ciphertext][tag:8]` | **14 bytes** |
 | INTRO | `[eph_pub:32][ciphertext][tag:8]` | **40 bytes** (seedless) |
 | CONTACT | `[pub:32][check:2]` | **34 bytes** |
-| BROADCAST_SIGNED | `[flags:1][x25519_pub:32][compressed][xeddsa_sig:64]` | **97 bytes** |
-| BROADCAST_SIGNED_COMPACT | `[flags:1][x25519_fp:2][compressed][xeddsa_sig:64]` | **67 bytes** |
+| BROADCAST_SIGNED | `[flags:1][x25519_fp:2][compressed][xeddsa_sig:64]` | **67 bytes** |
 | BROADCAST_UNSIGNED | `[flags:1][compressed][check:2]` | **3 bytes** |
 
 **Frame type detection order:**
 1. Trial decryption as MSG (try each contact's key — 2^-64 false positive per key)
 2. Trial decryption as INTRO (first 32 bytes as ephemeral key — 2^-64 false positive)
-3. BROADCAST_SIGNED: flags byte discriminator `(byte[0] & 0x3F) == 0x02` + Ed25519 signature verification
+3. BROADCAST_SIGNED: flags byte discriminator `(byte[0] & 0x3F) == 0x02` + fingerprint lookup + XEdDSA signature verification via Web Crypto Ed25519
 4. CONTACT check byte validation (`bytes[32:34] == checkBytes(bytes[0:32])`)
 5. BROADCAST_UNSIGNED: flags byte discriminator `(byte[0] & 0x3F) == 0x03` + XOR-fold checksum
 
-AES-GCM's 64-bit tag makes false accepts astronomically unlikely (2^-64 per attempt). Safe for manual copy-paste with no decryption oracle.
+AES-GCM's 64-bit tag gives 2^-64 false accept probability per trial decryption attempt — acceptable for manual copy-paste with no decryption oracle (see "64-bit GCM Tag" below).
 
 **Key exchange confirmation:** The `keyExchangeConfirmed` flag on each contact tracks whether we have proof they possess our public key. Until confirmed, every outgoing message uses INTRO. After confirmation, MSG is used.
 
@@ -116,7 +115,7 @@ False positive rate: 1/65536 for random data.
 
 We use `tagLength: 64` (8 bytes) instead of the default 128 (16 bytes). This saves 8 bytes per message vs the Web Crypto default.
 
-**Why this is safe:** Single-forgery probability is 2^-64 per attempt. There is no decryption oracle — the user manually pastes stegotext. An attacker cannot submit automated forgery probes. NIST's deprecation of short tags targets high-throughput automated protocols (TLS, IPsec), not manual copy-paste messaging.
+**Why this tradeoff is acceptable here:** 64-bit tags are weaker than the standard 128-bit choice. Single-forgery probability is 2^-64 per attempt. This is acceptable because message handling is manual (user copy-pastes stegotext), low-volume, and does not expose a decryption oracle — an attacker cannot submit automated forgery probes. NIST's deprecation of short tags targets high-throughput automated protocols (TLS, IPsec), not manual copy-paste messaging.
 
 ### Broadcast Frames
 
@@ -136,33 +135,27 @@ check = contactCheckBytes(flags || compressed_message)
 ```
 3 bytes overhead. XOR-fold checksum (same algorithm as CONTACT). False positive: ~2^-22 (1/64 discriminator × 1/65536 checksum).
 
-**BROADCAST_SIGNED (standard):**
-```
-data = [flags:1][x25519_pub:32][compressed_message:N]
-sig  = XEdDSA.sign(x25519_priv, data)
-wire = data || sig
-```
-97 bytes overhead. XEdDSA signature — signs with X25519 key directly.
-
-**BROADCAST_SIGNED_COMPACT:**
+**BROADCAST_SIGNED:**
 ```
 data = [flags:1][x25519_fp:2][compressed_message:N]
 sig  = XEdDSA.sign(x25519_priv, data)
 wire = data || sig
 ```
-67 bytes overhead. 2-byte fingerprint (first 2 bytes of SHA-256(x25519_pub)) instead of full key.
+67 bytes overhead. 2-byte fingerprint (first 2 bytes of SHA-256(x25519_pub)) for sender identification by recipients who already have the sender as a contact.
 
 ### XEdDSA Signing for Broadcast
 
-Based on Signal's XEdDSA specification (Trevor Perrin, 2016). Signs with the X25519 private key directly — no separate Ed25519 keypair needed.
+Custom signing construction inspired by Signal's XEdDSA specification (Trevor Perrin, 2016). Signs with the X25519 private key directly — no separate Ed25519 keypair needed.
 
-**Why XEdDSA?** Montgomery (X25519) and twisted Edwards (Ed25519) curves are birationally equivalent. The same scalar works for both ECDH and signing. This eliminates the 32-byte ed25519_pub from the wire format (vs the HKDF-derived approach).
+**Why XEdDSA?** Montgomery (X25519) and twisted Edwards (Ed25519) curves are birationally equivalent. The same clamped scalar works for both ECDH and signing. This eliminates the need for a separate signing keypair and the TOFU state management that would require.
 
-**Signing:** Inline BigInt Ed25519 arithmetic. The X25519 private scalar (already clamped) is used directly. If the corresponding Edwards public key has odd x-coordinate, the scalar is negated mod L to force even x (sign bit 0). Deterministic nonce via `SHA-512(0xFE*32 || scalar || message)`.
+**Signing (custom code, ~100 lines BigInt):** The X25519 private scalar (clamped) is used for Ed25519-style scalar multiplication on the Edwards curve. If the resulting public key has odd x-coordinate, the scalar is negated mod L to force even x (sign bit 0). Deterministic nonce via `SHA-512(0xFE*32 || scalar || message)` (same domain separator as the XEdDSA spec). This path is more experimental than the browser-native P2P encryption — it uses inline BigInt arithmetic, not Web Crypto, for the signing operation.
 
-**Verification:** Convert X25519 public key to Edwards compressed point via birational map: `y = (u - 1) / (u + 1) mod p`, sign bit 0. Then standard Web Crypto `Ed25519.verify()`.
+**Verification (Web Crypto):** Convert X25519 public key to Edwards compressed point via the birational map `y = (u - 1) * (u + 1)^(-1) mod p`, sign bit 0. Import as Ed25519 public key, then standard `crypto.subtle.verify("Ed25519", ...)`. The verification side is entirely browser-native.
 
-**Montgomery → Edwards conversion:** The birational map `y = (u - 1) * (u + 1)^(-1) mod p` converts any X25519 u-coordinate to an Edwards y-coordinate. The sign is always 0 (XEdDSA convention). This is a pure BigInt computation (~10 lines) with no external dependencies.
+**Montgomery → Edwards conversion:** The birational map converts any X25519 u-coordinate to an Edwards y-coordinate. For degenerate inputs (u=0, u=1, u=p-1 — torsion points not reachable by honest key generation), verification fails gracefully and returns false. Tests cover these edge cases explicitly.
+
+**Clamping note:** Chrome/BoringSSL exports X25519 private keys as unclamped seed bytes; Node.js/OpenSSL exports already-clamped scalars. The signing code always applies clamping before use (idempotent).
 
 ## PKCS8 Wrapping
 

@@ -828,7 +828,7 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
   const signed = await tryParseBroadcastSigned(bytes, candidateKeys);
   if (signed) {
     const plaintext = decompress(signed.compressed, signed.compMode);
-    await handleDecodedBroadcast(plaintext, signed.x25519Pub ?? null, signed.fingerprint, _theme);
+    await handleDecodedBroadcast(plaintext, signed, _theme);
     return;
   }
 
@@ -855,23 +855,22 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
   await handleEncode(inputEl.value.trim());
 }
 
-/** Handle a decoded signed broadcast. x25519Pub is set when signature was verified against a known contact. */
+/** Handle a decoded signed broadcast with three verification states. */
 async function handleDecodedBroadcast(
   plaintext: string,
-  x25519Pub: Uint8Array | null,
-  fingerprint: Uint8Array,
+  result: import('./broadcast').BroadcastSigned,
   _theme: ThemeId,
 ): Promise<void> {
-  const knownSender = x25519Pub ? findContactByKey(x25519Pub) : null;
+  const knownSender = result.x25519Pub ? findContactByKey(result.x25519Pub) : null;
   outputEl.textContent = plaintext;
   ttsText = inputEl.value.trim();
+  const fpHex = Array.from(result.fingerprint).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
 
-  if (knownSender) {
+  if (result.status === 'verified' && knownSender) {
     lastDecodedSender = knownSender.name;
     setOutputLabel(`Публикация · от ${knownSender.name}`);
     setCopyableText(plaintext, 'Скопировать текст');
 
-    // Add to chat history as broadcast
     const chatResult = addChatMessage({
       id: randomChatId(), direction: 'received', plaintext,
       encoded: inputEl.value.trim(), contactId: knownSender.id,
@@ -891,11 +890,14 @@ async function handleDecodedBroadcast(
     setOutputLabel('');
     setCopyableText('', '📋 Скопировать');
     ttsText = '';
-  } else {
-    // Signed but sender unknown — show fingerprint as pseudonymous identity
+  } else if (result.status === 'failed') {
     lastDecodedSender = null;
-    const fpHex = Array.from(fingerprint).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
-    setOutputLabel(`Публикация · подпись ${fpHex}`);
+    setOutputLabel(`Публикация · подпись не прошла проверку (код ${fpHex})`);
+    setCopyableText(plaintext, 'Скопировать текст');
+  } else {
+    // unverified — unknown sender, no matching fingerprint
+    lastDecodedSender = null;
+    setOutputLabel(`Публикация · неизвестный отправитель (код ${fpHex})`);
     setCopyableText(plaintext, 'Скопировать текст');
   }
   updateStatus();

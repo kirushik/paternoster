@@ -34,8 +34,8 @@ tests/
 │   ├── stego.test.ts         # All models × all byte values, auto-detect, edge cases (39)
 │   ├── dictionaries.test.ts  # Table sizes, uniqueness, prefix-free (30)
 │   ├── contacts.test.ts      # CRUD with localStorage mock, schema validation (17)
-│   ├── sign.test.ts          # Ed25519 derivation, sign/verify, wrong key rejection (8)
-│   ├── broadcast.test.ts     # Broadcast frame serialize/parse, flags, false positive (15)
+│   ├── sign.test.ts          # XEdDSA sign/verify, Montgomery→Edwards conversion, edge cases
+│   ├── broadcast.test.ts     # Broadcast frame serialize/parse, flags, verification states
 │   └── identity.test.ts      # Export/import roundtrip, wrong passphrase, corruption (5)
 ├── integration/
 │   ├── pipeline.test.ts      # Full encrypt→stego→decrypt roundtrip per theme (24)
@@ -45,10 +45,11 @@ tests/
 └── e2e/
     ├── helpers.ts            # Shared helpers: fillDialogAndConfirm, sendMessage, receiveFromKnown
     ├── basic.spec.ts         # Page load, key persistence, encode, copy, download (6)
-    ├── contacts.spec.ts      # Contact add/remove, invite link import (4)
+    ├── contacts.spec.ts      # Contact add/remove/delete, invite link import, identity export/import (8)
     ├── conversation.spec.ts  # Full multi-round conversation with key exchange confirmation (1)
     ├── crypto-roundtrip.spec.ts  # Alice↔Bob single message exchange (1)
     ├── theme-roundtrip.spec.ts   # Per-theme encode→decode roundtrip, all 8 themes (8)
+    ├── broadcast.spec.ts     # Signed/unsigned broadcast, identity verification, deduplication (5)
     └── tts.spec.ts           # Button behavior, language per theme (5)
 ```
 

@@ -50,10 +50,9 @@ test.describe('XEdDSA browser verification', () => {
     await page.fill('#input', encoded);
     await page.waitForTimeout(1000);
 
-    // Self is not a contact — shows as signed with fingerprint
-    // The key thing is it's detected as a signed broadcast (not re-encoded as plaintext)
+    // Self is not a contact — shows as unknown sender with code
     const label = await page.locator('#output-mode-label').textContent();
-    expect(label).toMatch(/^Публикация/);
+    expect(label).toMatch(/^Публикация · неизвестный отправитель/);
     await expect(page.locator('#output')).toHaveText('Тест в браузере');
   });
 });
@@ -196,9 +195,9 @@ test.describe('signed broadcast with identity verification', () => {
     await bob.fill('#input', encoded);
     await bob.waitForTimeout(500);
 
-    // Should show with a fingerprint (4 hex chars)
+    // Should show as unknown sender with fingerprint code
     const label = await bob.locator('#output-mode-label').textContent();
-    expect(label).toMatch(/^Публикация · подпись [0-9A-F]{4}$/);
+    expect(label).toMatch(/^Публикация · неизвестный отправитель \(код [0-9A-F]{4}\)$/);
     await expect(bob.locator('#output')).toHaveText(broadcastText);
 
     // ── Second broadcast from same Alice — same fingerprint ──

@@ -38,7 +38,7 @@ async function signedRoundtrip(plaintext: string, themeId: ThemeId): Promise<{
   const parsed = await tryParseBroadcastSigned(decoded!.bytes, [sender.publicKey]);
   expect(parsed).not.toBeNull();
   const result = decompress(parsed!.compressed, parsed!.compMode);
-  return { result, verified: parsed!.x25519Pub !== undefined };
+  return { result, verified: parsed!.status === 'verified' };
 }
 
 describe('broadcast unsigned pipeline', () => {

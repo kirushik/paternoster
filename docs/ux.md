@@ -19,7 +19,7 @@ The output always appears in a read-only label below the field. There is no "enc
 A toggle button in the bottom-right corner (next to the download button) switches between messaging mode and broadcast mode. In broadcast mode:
 - Contacts bar and chat area are hidden
 - Input is always encoded as a broadcast frame (never decoded)
-- A "Подписано / Без подписи" toggle controls whether the broadcast includes an Ed25519 signature bound to the sender's identity
+- A "Подписано / Без подписи" toggle controls whether the broadcast includes an XEdDSA signature (signed directly with the sender's X25519 key)
 - The amber accent color on the sign toggle and broadcast chat bubbles visually distinguishes broadcast content from P2P messages
 
 In messaging mode, broadcast messages from others are auto-detected and decoded normally. Signed broadcasts from known contacts appear in the contact's chat history with distinct amber-accented styling.
