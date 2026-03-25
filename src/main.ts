@@ -725,7 +725,7 @@ async function handleBroadcastEncode(plaintext: string): Promise<void> {
 
     const stegoText = stegoEncode(wireFrame, selectedTheme);
     outputEl.textContent = stegoText;
-    setCopyableText(stegoText, 'Скопировать сообщение');
+    setCopyableText(stegoText, 'Скопировать публикацию');
     ttsText = stegoText;
     updateBroadcastStatus();
   } catch (e) {
@@ -944,9 +944,13 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
   const candidateKeys = [myPublicKey, ...contacts.map(c => getContactKey(c))];
   const signed = await tryParseBroadcastSigned(bytes, candidateKeys);
   if (signed) {
-    const plaintext = decompress(signed.compressed, signed.compMode);
-    await handleDecodedBroadcast(plaintext, signed, _theme);
-    return;
+    try {
+      const plaintext = decompress(signed.compressed, signed.compMode);
+      await handleDecodedBroadcast(plaintext, signed, _theme);
+      return;
+    } catch {
+      // Decompression failed (e.g. reserved compMode=3) — not a valid broadcast, fall through
+    }
   }
 
   // 4. Try as CONTACT: pub = bytes[0:32], check = bytes[32]
