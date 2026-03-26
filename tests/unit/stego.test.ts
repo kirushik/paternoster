@@ -231,14 +231,13 @@ describe('stego handles edge cases', () => {
     const hex = stegoEncode(new Uint8Array([]), 'hex');
     expect(hex).toBe('');
 
-    // model-4096/1024 themes produce padding tokens (roundtrip to empty)
+    // model-4096/1024 themes produce padding tokens that must roundtrip to empty
     for (const themeId of ['БОЖЕ', 'КИТАЙ', '🙂'] as const) {
       const encoded = stegoEncode(new Uint8Array([]), themeId);
       expect(encoded.length).toBeGreaterThan(0);
       const decoded = stegoDecode(encoded);
-      if (decoded !== null) {
-        expect(decoded.bytes).toEqual(new Uint8Array([]));
-      }
+      expect(decoded).not.toBeNull();
+      expect(decoded!.bytes).toEqual(new Uint8Array([]));
     }
   });
 
