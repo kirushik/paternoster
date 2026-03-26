@@ -111,28 +111,29 @@ describe('BROADCAST_SIGNED serialization (XEdDSA, 67-byte overhead)', () => {
 
 describe('BROADCAST_SIGNED fingerprint collision handling', () => {
   it('verifies correct key even when a colliding-fingerprint wrong key is tried first', async () => {
-    // Construct the scenario directly: two candidate keys where the wrong one
-    // has the same fingerprint as the sender. We craft a fake "imposter" key
-    // by generating keys until one collides on the 2-byte fingerprint.
+    // Find any two keys that share a 2-byte fingerprint (birthday collision).
+    // With 65536 possible fingerprints, ~256 keys virtually guarantee a collision.
     const { pubFingerprint } = await import('../../src/broadcast');
-    const sender = await generateKeyPair();
-    const senderFp = await pubFingerprint(sender.publicKey);
 
-    // Batch key generation for speed — generate 256 keys, check fingerprints
+    const fpMap = new Map<string, { privateKey: Uint8Array; publicKey: Uint8Array }>();
+    let sender: { privateKey: Uint8Array; publicKey: Uint8Array } | null = null;
     let imposterKey: Uint8Array | null = null;
-    for (let batch = 0; batch < 1000 && !imposterKey; batch++) {
-      const keys = await Promise.all(Array.from({ length: 256 }, () => generateKeyPair()));
-      for (const kp of keys) {
-        const fp = await pubFingerprint(kp.publicKey);
-        if (fp[0] === senderFp[0] && fp[1] === senderFp[1]) {
-          imposterKey = kp.publicKey;
-          break;
-        }
+
+    const batch = await Promise.all(Array.from({ length: 512 }, () => generateKeyPair()));
+    for (const kp of batch) {
+      const fp = await pubFingerprint(kp.publicKey);
+      const fpHex = `${fp[0]},${fp[1]}`;
+      const existing = fpMap.get(fpHex);
+      if (existing) {
+        sender = existing;
+        imposterKey = kp.publicKey;
+        break;
       }
+      fpMap.set(fpHex, kp);
     }
-    if (!imposterKey) {
-      // Extremely unlikely (256k attempts), but skip rather than fail
-      console.log('SKIP: no fingerprint collision found in 256k attempts');
+
+    if (!sender || !imposterKey) {
+      console.log('SKIP: no birthday collision in 512 keys (extremely unlikely)');
       return;
     }
 
@@ -144,7 +145,7 @@ describe('BROADCAST_SIGNED fingerprint collision handling', () => {
     expect(parsed).not.toBeNull();
     expect(parsed!.status).toBe('verified');
     expect(parsed!.x25519Pub).toEqual(sender.publicKey);
-  }, 30000); // allow up to 30s for brute-force
+  });
 });
 
 describe('BROADCAST_SIGNED through stego roundtrip with candidate match', () => {
