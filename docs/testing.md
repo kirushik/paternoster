@@ -42,7 +42,7 @@ tests/
 │   ├── broadcast-pipeline.test.ts  # Full broadcast roundtrip per theme, signed+unsigned (21)
 │   ├── contact-exchange.test.ts  # Contact token through stego roundtrip (9)
 │   ├── invite.test.ts        # Base64url token generate/parse (8)
-│   └── stego-benchmark.test.ts  # Expansion ratios, decode timing, transport limit verification (20)
+│   └── stego-benchmark.test.ts  # Transport limit verification (10)
 └── e2e/
     ├── helpers.ts            # Shared helpers: fillDialogAndConfirm, sendMessage, receiveFromKnown
     ├── basic.spec.ts         # Page load, key persistence, encode, copy, download (6)

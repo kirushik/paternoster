@@ -24,10 +24,7 @@ import { speak, stopSpeaking, isSpeaking, hasVoiceForLang, onVoicesChanged } fro
 import { exportIdentity, importIdentity } from './identity';
 import { loadChat, addChatMessage, clearChat, randomChatId } from './chat';
 import { tryParseBroadcastSigned, tryParseBroadcastUnsigned, serializeBroadcastSigned, serializeBroadcastUnsigned } from './broadcast';
-
-/** Max stego output characters. Keeps output within common messenger limits
- *  and ensures fast decoding on slow devices (~1s at 50x slowdown). */
-const MAX_STEGO_CHARS = 50_000;
+import { MAX_STEGO_CHARS } from './constants';
 
 // ── State ───────────────────────────────────────────────
 

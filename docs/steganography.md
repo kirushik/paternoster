@@ -64,7 +64,7 @@ Output must survive copy-paste across Telegram, VK, WhatsApp, Instagram, Twitter
 
 There is no hard byte-count limit on stego encoding/decoding — arbitrarily large payloads round-trip correctly for all models. The decoder loops are bounded by input length (each iteration consumes at least one character), so there is no risk of infinite loops on well-formed or malformed input.
 
-The practical limit is the **stego output character count**. The UI enforces a maximum of **50,000 characters** (`MAX_STEGO_CHARS` in `main.ts`). This keeps output within common messenger character limits (WhatsApp: 65K, Telegram: 4K per message) and ensures fast decoding on slow devices (~1s worst case at 50× slowdown).
+The practical limit is the **stego output character count**. The UI enforces a maximum of **50,000 characters** (`MAX_STEGO_CHARS` in `src/constants.ts`). This keeps output within typical high messenger limits (e.g. WhatsApp ~65K, VK). On Telegram (~4K per message), larger outputs need to be split across multiple messages. The cap also ensures fast decoding on slow devices (~1s worst case at 50× slowdown).
 
 Expansion ratios vary by model:
 
