@@ -95,70 +95,72 @@ function decoder16(s: string, tab: Theme): Uint8Array | null {
 }
 
 // ── Model 64: 2-bit + 6-bit lookup ──────────────────────
-
-function encoder64(b: Uint8Array, tab: Theme): string {
-  const t1 = tab.tab1!;
-  const t2 = tab.tab2!;
-  const t3 = tab.tab3!;
-  let o = '';
-  for (let i = 0; i < b.length; i++) {
-    o += (Math.random() < tab.rand ? t2 : t1)[b[i] & 0x03];
-    o += t3[(b[i] >> 2) & 0x3F];
-  }
-  return o;
-}
-
-function decoder64(s: string, tab: Theme): Uint8Array | null {
-  const normalized = normalizeForDecode(s);
-  let remainder = normalized;
-  const t1 = normalizeTab(tab.tab1)!;
-  const t2 = normalizeTab(tab.tab2)!;
-  const t3 = normalizeTab(tab.tab3)!;
-  const pairs: number[] = [];
-
-  // Safety bound: each iteration consumes ≥1 char, so remainder.length is an upper bound.
-  let safety = remainder.length + 1;
-  while (--safety && remainder.length > 0) {
-    let lo = -1;
-    for (let i = 0; i < 4; i++) {
-      if (remainder.startsWith(t1[i])) {
-        lo = i;
-        remainder = remainder.substring(t1[i].length);
-        break;
-      }
-    }
-    if (lo < 0) {
-      for (let i = 0; i < 4; i++) {
-        if (remainder.startsWith(t2[i])) {
-          lo = i;
-          remainder = remainder.substring(t2[i].length);
-          break;
-        }
-      }
-    }
-    if (lo < 0) return null;
-
-    let hi = -1;
-    for (let i = 0; i < 64; i++) {
-      if (remainder.startsWith(t3[i])) {
-        hi = i;
-        remainder = remainder.substring(t3[i].length);
-        break;
-      }
-    }
-    if (hi < 0) return null;
-
-    pairs.push(lo);
-    pairs.push(hi);
-  }
-
-  if (pairs.length % 2 !== 0) return null;
-  const bytes = new Uint8Array(pairs.length / 2);
-  for (let i = 0, j = 0; i < pairs.length; i += 2, j++) {
-    bytes[j] = pairs[i] + (pairs[i + 1] << 2);
-  }
-  return bytes;
-}
+// CURRENTLY UNUSED: No theme in dictionaries.ts uses model: 64.
+// Kept commented out for reference — uncomment and re-add to dispatch
+// tables (ENCODERS/DECODERS below) if a model-64 theme is added.
+//
+// function encoder64(b: Uint8Array, tab: Theme): string {
+//   const t1 = tab.tab1!;
+//   const t2 = tab.tab2!;
+//   const t3 = tab.tab3!;
+//   let o = '';
+//   for (let i = 0; i < b.length; i++) {
+//     o += (Math.random() < tab.rand ? t2 : t1)[b[i] & 0x03];
+//     o += t3[(b[i] >> 2) & 0x3F];
+//   }
+//   return o;
+// }
+//
+// function decoder64(s: string, tab: Theme): Uint8Array | null {
+//   const normalized = normalizeForDecode(s);
+//   let remainder = normalized;
+//   const t1 = normalizeTab(tab.tab1)!;
+//   const t2 = normalizeTab(tab.tab2)!;
+//   const t3 = normalizeTab(tab.tab3)!;
+//   const pairs: number[] = [];
+//
+//   let safety = remainder.length + 1;
+//   while (--safety && remainder.length > 0) {
+//     let lo = -1;
+//     for (let i = 0; i < 4; i++) {
+//       if (remainder.startsWith(t1[i])) {
+//         lo = i;
+//         remainder = remainder.substring(t1[i].length);
+//         break;
+//       }
+//     }
+//     if (lo < 0) {
+//       for (let i = 0; i < 4; i++) {
+//         if (remainder.startsWith(t2[i])) {
+//           lo = i;
+//           remainder = remainder.substring(t2[i].length);
+//           break;
+//         }
+//       }
+//     }
+//     if (lo < 0) return null;
+//
+//     let hi = -1;
+//     for (let i = 0; i < 64; i++) {
+//       if (remainder.startsWith(t3[i])) {
+//         hi = i;
+//         remainder = remainder.substring(t3[i].length);
+//         break;
+//       }
+//     }
+//     if (hi < 0) return null;
+//
+//     pairs.push(lo);
+//     pairs.push(hi);
+//   }
+//
+//   if (pairs.length % 2 !== 0) return null;
+//   const bytes = new Uint8Array(pairs.length / 2);
+//   for (let i = 0, j = 0; i < pairs.length; i += 2, j++) {
+//     bytes[j] = pairs[i] + (pairs[i + 1] << 2);
+//   }
+//   return bytes;
+// }
 
 // ── Model 1024: 10-bit bit-stream emoji lookup ──────────
 // Bit stream layout: [padCount:4][data bits][zero padding]
@@ -368,8 +370,8 @@ function decoder4096(s: string, tab: Theme): Uint8Array | null {
 type Encoder = (b: Uint8Array, tab: Theme) => string;
 type Decoder = (s: string, tab: Theme) => Uint8Array | null;
 
-const ENCODERS: Record<number, Encoder> = { 0: encoder0, 16: encoder16, 64: encoder64, 1024: encoder1024, 4096: encoder4096 };
-const DECODERS: Record<number, Decoder> = { 0: decoder0, 16: decoder16, 64: decoder64, 1024: decoder1024, 4096: decoder4096 };
+const ENCODERS: Record<number, Encoder> = { 0: encoder0, 16: encoder16, /* 64: encoder64, */ 1024: encoder1024, 4096: encoder4096 };
+const DECODERS: Record<number, Decoder> = { 0: decoder0, 16: decoder16, /* 64: decoder64, */ 1024: decoder1024, 4096: decoder4096 };
 
 /** Encode bytes to themed steganographic text. */
 export function stegoEncode(bytes: Uint8Array, themeId: ThemeId): string {

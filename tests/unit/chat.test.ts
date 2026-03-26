@@ -128,7 +128,7 @@ describe('addChatMessage', () => {
 describe('randomChatId', () => {
   it('returns a 12-char hex string', () => {
     const id = randomChatId();
-    expect(id).toMatch(/^[0-9a-f]{12}$/);
+    expect(id).toMatch(/^[0-9A-F]{12}$/);
   });
 
   it('generates unique IDs', () => {

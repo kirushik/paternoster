@@ -10,7 +10,7 @@
  * See docs/crypto.md for full spec.
  */
 
-import { concatU8 } from './utils';
+import { concatU8, sha256WithDomain } from './utils';
 import { SEED_LENGTH } from './crypto';
 
 // ── Compression mode constants (2-bit values, stored in seed[0] bits 7-6) ──
@@ -31,10 +31,8 @@ const CHECK_DOMAIN = new TextEncoder().encode('paternoster-check-v2');
 
 /** Compute 2 check bytes via truncated SHA-256. 1/65536 false positive rate. */
 export async function contactCheckBytes(data: Uint8Array): Promise<[number, number]> {
-  const hash = new Uint8Array(
-    await crypto.subtle.digest('SHA-256', concatU8(data, CHECK_DOMAIN) as BufferSource),
-  );
-  return [hash[0], hash[1]];
+  const bytes = await sha256WithDomain(data, CHECK_DOMAIN, 2);
+  return [bytes[0], bytes[1]];
 }
 
 // ── Serialize ───────────────────────────────────────────

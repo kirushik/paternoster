@@ -15,13 +15,9 @@ import { compress, decompress } from '../../src/compress';
 import { stegoEncode, stegoDecode } from '../../src/stego';
 import { serializeMsg, serializeIntro, couldBeMsg, couldBeIntro, splitIntro } from '../../src/wire';
 import { concatU8 } from '../../src/utils';
+import { type Identity } from '../helpers';
 
 // ── Helpers ──────────────────────────────────────────────
-
-interface Identity {
-  privateKey: Uint8Array;
-  publicKey: Uint8Array;
-}
 
 /** Simulate sending an INTRO (first contact, pre-kex). */
 async function sendIntro(

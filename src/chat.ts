@@ -4,6 +4,7 @@
  */
 
 import { type ThemeId } from './dictionaries';
+import { randomHexId } from './utils';
 
 export interface ChatMessage {
   id: string;
@@ -63,7 +64,5 @@ export function addChatMessage(msg: ChatMessage): { added: true } | { added: fal
 }
 
 export function randomChatId(): string {
-  return Array.from(crypto.getRandomValues(new Uint8Array(6)))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
+  return randomHexId(6);
 }

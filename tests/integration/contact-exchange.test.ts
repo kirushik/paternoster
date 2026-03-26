@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { generateKeyPair } from '../../src/crypto';
 import { stegoEncode, stegoDecode } from '../../src/stego';
 import { serializeContact, tryParseContact, contactCheckBytes } from '../../src/wire';
-import { type ThemeId } from '../../src/dictionaries';
+import { ALL_THEME_IDS } from '../helpers';
 
 describe('contact token exchange via stego', () => {
-  const themes: ThemeId[] = ['БОЖЕ', 'РОССИЯ', 'СССР', 'БУХАЮ', 'КИТАЙ', 'PATER', '🙂', 'hex'];
+  const themes = ALL_THEME_IDS;
 
   for (const themeId of themes) {
     it(`contact token roundtrips through ${themeId}`, async () => {

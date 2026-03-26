@@ -3,11 +3,11 @@ import { checkX25519Support, generateKeyPair, encrypt, encryptIntro, CLASS_MSG }
 import { compress } from './compress';
 import { stegoEncode, stegoDecode } from './stego';
 import {
-  serializeMsg, serializeIntro, serializeContact, contactCheckBytes,
+  serializeMsg, serializeIntro, serializeContact,
 } from './wire';
 import { type ThemeId, THEMES } from './dictionaries';
 import { STORAGE, storageGet, storageSet } from './storage';
-import { u8hex, hexU8, u8eq, concatU8, u8toBase64url, base64urlToU8, contactCode } from './utils';
+import { u8hex, hexU8, u8eq, concatU8, contactCode } from './utils';
 import {
   type Contact,
   loadContacts,
@@ -25,6 +25,7 @@ import { loadChat, addChatMessage, clearChat, randomChatId } from './chat';
 import { serializeBroadcastSigned, serializeBroadcastUnsigned } from './broadcast';
 import { classifyFrame, classifyFrameBroadcastMode, type KnownKey } from './detect';
 import { checkEd25519Support } from './sign';
+import { tryParseInviteToken, makeInviteToken } from './invite';
 import { MAX_STEGO_CHARS } from './constants';
 
 // ── State ───────────────────────────────────────────────
@@ -61,6 +62,52 @@ let statusEl: HTMLDivElement;
 let copyBtn: HTMLButtonElement;
 let ttsBtn: HTMLButtonElement;
 let errorEl: HTMLDivElement;
+
+// ── Helpers ─────────────────────────────────────────────
+
+function clearOutput(): void {
+  outputEl.textContent = '';
+  setOutputLabel('');
+  setCopyableText('', '📋 Скопировать');
+  ttsText = '';
+}
+
+async function copyToClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+}
+
+function buildKnownKeys(): KnownKey[] {
+  return contacts.map(c => ({
+    name: c.name,
+    key: getContactKey(c),
+    contactId: c.id,
+  }));
+}
+
+/** Commit a received/sent message to chat, optionally switch contact, render, handle dedup flash, and clear working area. */
+function commitToChat(msg: Parameters<typeof addChatMessage>[0], contactId?: string): void {
+  const chatResult = addChatMessage(msg);
+  if (contactId && selectedContactId !== contactId) {
+    selectedContactId = contactId;
+    setSelectedContactId(contactId);
+    renderContacts();
+  }
+  renderChat();
+  if (!chatResult.added) flashChatMessage(chatResult.duplicateId);
+  inputEl.value = '';
+  autoGrow(inputEl);
+  clearOutput();
+}
 
 // ── Init ────────────────────────────────────────────────
 
@@ -454,15 +501,7 @@ function renderChat(): void {
       cpBtn.textContent = '📋';
       cpBtn.title = 'Скопировать зашифрованный текст';
       cpBtn.addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(encoded); } catch {
-          const ta = document.createElement('textarea');
-          ta.value = encoded;
-          ta.style.cssText = 'position:fixed;opacity:0';
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
-        }
+        await copyToClipboard(encoded);
         cpBtn.textContent = '✓';
         setTimeout(() => { cpBtn.textContent = '📋'; }, 1500);
       });
@@ -625,11 +664,7 @@ async function processInput(): Promise<void> {
 
   const text = inputEl.value.trim();
   if (!text) {
-    outputEl.textContent = '';
-    setOutputLabel('');
-    setCopyableText('', '📋 Скопировать');
-    ttsText = '';
-    ttsText = '';
+    clearOutput();
     lastDecodedSender = null;
     updateStatus();
     return;
@@ -702,10 +737,8 @@ async function handleEncode(plaintext: string): Promise<void> {
 
     const stegoText = stegoEncode(wireFrame, selectedTheme);
     if (stegoText.length > MAX_STEGO_CHARS) {
-      outputEl.textContent = '';
+      clearOutput();
       setOutputLabel(`Сообщение слишком длинное (${stegoText.length} символов, максимум ${MAX_STEGO_CHARS})`);
-      setCopyableText('', '📋 Скопировать');
-      ttsText = '';
       updateStatus('слишком длинное');
       return;
     }
@@ -740,10 +773,8 @@ async function handleBroadcastEncode(plaintext: string): Promise<void> {
 
     const stegoText = stegoEncode(wireFrame, selectedTheme);
     if (stegoText.length > MAX_STEGO_CHARS) {
-      outputEl.textContent = '';
+      clearOutput();
       setOutputLabel(`Сообщение слишком длинное (${stegoText.length} символов, максимум ${MAX_STEGO_CHARS})`);
-      setCopyableText('', '📋 Скопировать');
-      ttsText = '';
       updateBroadcastStatus();
       return;
     }
@@ -769,10 +800,7 @@ function updateBroadcastStatus(): void {
  * Returns true if content was handled (decoded or switched).
  */
 async function handleBroadcastModeDecode(bytes: Uint8Array, _theme: ThemeId): Promise<boolean> {
-  const knownKeys: KnownKey[] = contacts.map(c => ({
-    name: c.name, key: getContactKey(c), contactId: c.id,
-  }));
-  const result = await classifyFrameBroadcastMode(bytes, myPrivateKey, myPublicKey, knownKeys);
+  const result = await classifyFrameBroadcastMode(bytes, myPrivateKey, myPublicKey, buildKnownKeys());
   if (!result) return false;
 
   switch (result.type) {
@@ -811,24 +839,11 @@ async function handleDecodedIntro(senderPub: Uint8Array, plaintext: string, _the
       contacts = loadContacts();
     }
     lastDecodedSender = knownSender.name;
-    const chatResult = addChatMessage({
+    commitToChat({
       id: randomChatId(), direction: 'received', plaintext,
       encoded: inputEl.value.trim(), contactId: knownSender.id,
       senderName: knownSender.name, timestamp: Date.now(), theme: _theme,
-    });
-    if (selectedContactId !== knownSender.id) {
-      selectedContactId = knownSender.id;
-      setSelectedContactId(knownSender.id);
-      renderContacts();
-    }
-    renderChat();
-    if (!chatResult.added) flashChatMessage(chatResult.duplicateId);
-    inputEl.value = '';
-    autoGrow(inputEl);
-    outputEl.textContent = '';
-    setOutputLabel('');
-    setCopyableText('', '📋 Скопировать');
-    ttsText = '';
+    }, knownSender.id);
   } else {
     pendingNewContact = {
       senderKey: senderPub, plaintext,
@@ -856,24 +871,11 @@ function handleDecodedMsg(plaintext: string, senderName: string, contactId: stri
       confirmKeyExchange(senderContact.id);
       contacts = loadContacts();
     }
-    const chatResult = addChatMessage({
+    commitToChat({
       id: randomChatId(), direction: 'received', plaintext,
       encoded: inputEl.value.trim(), contactId,
       senderName, timestamp: Date.now(), theme: _theme,
-    });
-    if (selectedContactId !== contactId) {
-      selectedContactId = contactId;
-      setSelectedContactId(contactId);
-      renderContacts();
-    }
-    renderChat();
-    if (!chatResult.added) flashChatMessage(chatResult.duplicateId);
-    inputEl.value = '';
-    autoGrow(inputEl);
-    outputEl.textContent = '';
-    setOutputLabel('');
-    setCopyableText('', '📋 Скопировать');
-    ttsText = '';
+    }, contactId);
   } else {
     setOutputLabel(`Расшифровано · от ${lastDecodedSender}`);
   }
@@ -881,10 +883,7 @@ function handleDecodedMsg(plaintext: string, senderName: string, contactId: stri
 }
 
 async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
-  const knownKeys: KnownKey[] = contacts.map(c => ({
-    name: c.name, key: getContactKey(c), contactId: c.id,
-  }));
-  const result = await classifyFrame(bytes, myPrivateKey, myPublicKey, knownKeys);
+  const result = await classifyFrame(bytes, myPrivateKey, myPublicKey, buildKnownKeys());
 
   switch (result.type) {
     case 'msg':
@@ -904,10 +903,8 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
       return;
     case 'unknown':
       lastDecodedSender = null;
-      outputEl.textContent = '';
+      clearOutput();
       setOutputLabel('Не удалось расшифровать');
-      setCopyableText('', '📋 Скопировать');
-      ttsText = '';
       updateStatus('ошибка расшифровки');
       return;
   }
@@ -936,25 +933,12 @@ async function handleDecodedBroadcast(
     setOutputLabel(`Публикация · от ${knownSender.name}`);
     setCopyableText(plaintext, 'Скопировать текст');
 
-    const chatResult = addChatMessage({
+    commitToChat({
       id: randomChatId(), direction: 'received', plaintext,
       encoded: inputEl.value.trim(), contactId: knownSender.id,
       senderName: knownSender.name, timestamp: Date.now(), theme: _theme,
       type: 'broadcast',
-    });
-    if (selectedContactId !== knownSender.id) {
-      selectedContactId = knownSender.id;
-      setSelectedContactId(knownSender.id);
-      renderContacts();
-    }
-    renderChat();
-    if (!chatResult.added) flashChatMessage(chatResult.duplicateId);
-    inputEl.value = '';
-    autoGrow(inputEl);
-    outputEl.textContent = '';
-    setOutputLabel('');
-    setCopyableText('', '📋 Скопировать');
-    ttsText = '';
+    }, knownSender.id);
   } else if (result.status === 'failed') {
     lastDecodedSender = null;
     setOutputLabel(`Публикация · подпись не прошла проверку (код ${fpHex})`, true);
@@ -1036,10 +1020,7 @@ async function handleSavePendingContact(): Promise<void> {
   // Clear working area
   inputEl.value = '';
   autoGrow(inputEl);
-  outputEl.textContent = '';
-  setOutputLabel('');
-  setCopyableText('', '📋 Скопировать');
-  ttsText = '';
+  clearOutput();
   updateStatus();
 }
 
@@ -1080,39 +1061,7 @@ async function handleContactToken(publicKey: Uint8Array): Promise<void> {
   updateStatus();
 }
 
-/** Try to parse a base64url invite token. Returns the 32-byte public key or null. */
-async function tryParseInviteToken(text: string): Promise<Uint8Array | null> {
-  // Invite token format: base64url of [32-byte public key][2 check bytes] = 34 bytes = 46 base64url chars
-  // Also accept just the raw base64url of the 32-byte key (43 chars)
-  // Also accept full URLs with hash fragment: https://any-domain.com/path#TOKEN
-  let clean = text.replace(/\s/g, '');
-  const hashIdx = clean.indexOf('#');
-  if (hashIdx !== -1) {
-    clean = clean.slice(hashIdx + 1);
-  }
-  if (!/^[A-Za-z0-9_-]{43,46}$/.test(clean)) return null;
-
-  try {
-    const decoded = base64urlToU8(clean);
-    if (decoded.length === 34) {
-      const pub = decoded.slice(0, 32);
-      const [a, b] = await contactCheckBytes(pub);
-      if (decoded[32] === a && decoded[33] === b) return pub;
-    }
-    if (decoded.length === 32) {
-      return decoded;
-    }
-  } catch {
-    // Not valid base64
-  }
-  return null;
-}
-
-/** Generate a compact base64url invite token for sharing. */
-async function makeInviteToken(publicKey: Uint8Array): Promise<string> {
-  const wire = await serializeContact(publicKey);
-  return u8toBase64url(wire);
-}
+// tryParseInviteToken and makeInviteToken moved to src/invite.ts
 
 async function makeInviteLink(publicKey: Uint8Array): Promise<string> {
   const token = await makeInviteToken(publicKey);
@@ -1159,17 +1108,7 @@ async function showOwnContactToken(): Promise<void> {
   inviteCopyBtn.className = 'action-btn invite-copy-btn';
   inviteCopyBtn.textContent = '📋 Скопировать ссылку';
   inviteCopyBtn.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(inviteLink);
-    } catch {
-      const ta = document.createElement('textarea');
-      ta.value = inviteLink;
-      ta.style.cssText = 'position:fixed;opacity:0';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
+    await copyToClipboard(inviteLink);
     inviteCopyBtn.textContent = '✓ Скопировано';
     setTimeout(() => { inviteCopyBtn.textContent = '📋 Скопировать ссылку'; }, 1500);
   });
@@ -1349,25 +1288,13 @@ async function handleCopy(): Promise<void> {
   const text = copyableText || outputEl.textContent || '';
   if (!text) return;
 
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    // Fallback for file:// or older browsers
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textarea);
-  }
+  await copyToClipboard(text);
 
   // Commit sent message to chat history
   if (selectedContactId && copyLabel === 'Скопировать сообщение') {
     const plaintext = inputEl.value.trim();
     if (plaintext) {
-      const chatResult = addChatMessage({
+      commitToChat({
         id: randomChatId(),
         direction: 'sent',
         plaintext,
@@ -1376,15 +1303,6 @@ async function handleCopy(): Promise<void> {
         timestamp: Date.now(),
         theme: selectedTheme,
       });
-      renderChat();
-      if (!chatResult.added) flashChatMessage(chatResult.duplicateId);
-      // Auto-clear working area for next message
-      inputEl.value = '';
-      autoGrow(inputEl);
-      outputEl.textContent = '';
-      setOutputLabel('');
-      setCopyableText('', '📋 Скопировать');
-    ttsText = '';
     }
   }
 

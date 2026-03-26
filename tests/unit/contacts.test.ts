@@ -24,7 +24,7 @@ describe('contacts CRUD', () => {
     expect(contact.name).toBe('Alice');
     expect(contact.publicKeyHex).toBe('AB'.repeat(32));
     expect(contact.keyExchangeConfirmed).toBe(false);
-    expect(contact.id).toMatch(/^[0-9a-f]{16}$/);
+    expect(contact.id).toMatch(/^[0-9A-F]{16}$/);
 
     const loaded = loadContacts();
     expect(loaded).toHaveLength(1);

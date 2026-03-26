@@ -13,7 +13,7 @@
  *   Recipients who have the sender as a contact can verify; others just read.
  */
 
-import { concatU8 } from './utils';
+import { concatU8, sha256Bytes } from './utils';
 import {
   BROADCAST_SIGNED_TAG,
   BROADCAST_UNSIGNED_TAG,
@@ -39,8 +39,7 @@ export function flagsTag(flags: number): number {
 
 /** 2-byte fingerprint: first 2 bytes of SHA-256(x25519_pub). */
 export async function pubFingerprint(x25519Pub: Uint8Array): Promise<Uint8Array> {
-  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', x25519Pub as BufferSource));
-  return hash.slice(0, 2);
+  return sha256Bytes(x25519Pub, 2);
 }
 
 // ── Serialize ────────────────────────────────────────────

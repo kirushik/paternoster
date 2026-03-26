@@ -10,44 +10,14 @@ import {
   classifyFrameBroadcastMode,
   type KnownKey,
 } from '../../src/detect';
-import {
-  generateKeyPair,
-  encrypt,
-  encryptIntro,
-  CLASS_MSG,
-} from '../../src/crypto';
+import { generateKeyPair } from '../../src/crypto';
 import { compress } from '../../src/compress';
-import {
-  serializeMsg,
-  serializeIntro,
-  serializeContact,
-} from '../../src/wire';
+import { serializeContact } from '../../src/wire';
 import {
   serializeBroadcastSigned,
   serializeBroadcastUnsigned,
 } from '../../src/broadcast';
-import { concatU8 } from '../../src/utils';
-
-// ── Helpers ──────────────────────────────────────────────
-
-async function makeMsgFrame(
-  senderPriv: Uint8Array, senderPub: Uint8Array,
-  recipientPub: Uint8Array, plaintext: string,
-): Promise<Uint8Array> {
-  const { payload, compMode } = compress(plaintext);
-  const encrypted = await encrypt(payload, senderPriv, recipientPub, senderPub, recipientPub, CLASS_MSG, compMode);
-  return serializeMsg(encrypted);
-}
-
-async function makeIntroFrame(
-  senderPub: Uint8Array, recipientPub: Uint8Array, plaintext: string,
-): Promise<Uint8Array> {
-  const { payload, compMode } = compress(plaintext);
-  const eph = await generateKeyPair();
-  const introPayload = concatU8(new Uint8Array([compMode]), senderPub, payload);
-  const encrypted = await encryptIntro(introPayload, eph.privateKey, recipientPub, eph.publicKey, recipientPub);
-  return serializeIntro(eph.publicKey, encrypted);
-}
+import { makeMsgFrame, makeIntroFrame } from '../helpers';
 
 // ── Regular mode classification ──────────────────────────
 

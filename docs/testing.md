@@ -31,6 +31,7 @@ V8 coverage is configured in `vitest.config.ts`. CI runs with `--coverage` and e
 
 ```
 tests/
+├── helpers.ts               # Shared test utilities: makeMsgFrame, makeIntroFrame, ALL_THEME_IDS, Identity type
 ├── unit/
 │   ├── utils.test.ts         # Hex, base64url, concat, equality, contact codes (27 tests)
 │   ├── squash.test.ts        # CP1251 encoding roundtrips, ratio checks (15)

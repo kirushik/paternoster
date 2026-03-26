@@ -3,8 +3,8 @@ import { generateKeyPair, encrypt, decrypt, encryptIntro, decryptIntro, directio
 import { compress, decompress } from '../../src/compress';
 import { stegoEncode, stegoDecode } from '../../src/stego';
 import { serializeMsg, serializeIntro, couldBeIntro, splitIntro } from '../../src/wire';
-import { type ThemeId } from '../../src/dictionaries';
 import { concatU8 } from '../../src/utils';
+import { ALL_THEME_IDS } from '../helpers';
 
 async function fullRoundtrip(
   plaintext: string,
@@ -50,7 +50,7 @@ async function fullRoundtrip(
 }
 
 describe('full pipeline roundtrip', () => {
-  const themes: ThemeId[] = ['БОЖЕ', 'РОССИЯ', 'СССР', 'БУХАЮ', 'КИТАЙ', 'PATER', '🙂', 'hex'];
+  const themes = ALL_THEME_IDS;
 
   for (const themeId of themes) {
     it(`roundtrips through ${themeId} without introduction`, async () => {
@@ -94,7 +94,7 @@ describe('pipeline with various message types', () => {
 
 describe('large message pipeline (safety counter regression)', () => {
   const largeText = 'Съешь же ещё этих мягких французских булок, да выпей чаю. '.repeat(100);
-  const themes: ThemeId[] = ['БОЖЕ', 'РОССИЯ', 'СССР', 'БУХАЮ', 'КИТАЙ', 'PATER', '🙂', 'hex'];
+  const themes = ALL_THEME_IDS;
 
   for (const themeId of themes) {
     it(`roundtrips large text (~5800 chars) through ${themeId} without introduction`, async () => {
