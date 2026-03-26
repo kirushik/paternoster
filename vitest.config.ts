@@ -4,6 +4,10 @@ export default defineConfig({
   cacheDir: '.vitest-cache',
   test: {
     include: ['tests/unit/**/*.test.ts', 'tests/integration/**/*.test.ts'],
+    typecheck: {
+      enabled: true,
+      include: ['tests/unit/**/*.test-d.ts'],
+    },
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],

@@ -16,7 +16,7 @@ test.describe('two-party message exchange', () => {
 
     // Step 1: Alice gets her invite token
     await alicePage.click('[data-id="self"]');
-    await alicePage.waitForTimeout(200);
+    await expect(alicePage.locator('.invite-token')).toBeVisible();
     const aliceToken = await alicePage.locator('.invite-token').textContent();
     expect(aliceToken).toBeTruthy();
 
@@ -30,7 +30,7 @@ test.describe('two-party message exchange', () => {
     // Step 3: Bob selects Alice and sends a message
     await bobPage.locator('.contact-pill', { hasText: 'Alice' }).click();
     await bobPage.fill('#input', 'Привет, Алиса!');
-    await bobPage.waitForTimeout(300);
+    await expect(bobPage.locator('#output')).not.toBeEmpty({ timeout: 5000 });
     const bobOutput = await bobPage.textContent('#output');
     expect(bobOutput).toBeTruthy();
     expect(bobOutput!.length).toBeGreaterThan(10);
@@ -38,7 +38,6 @@ test.describe('two-party message exchange', () => {
     // Step 4: Alice pastes Bob's encoded message
     // Bob's message includes sender key (MSG_INTRODUCTION), so Alice will discover Bob
     await alicePage.fill('#input', bobOutput!);
-    await alicePage.waitForTimeout(300);
 
     // Alice should see the decrypted message
     await expect(alicePage.locator('#output')).toHaveText('Привет, Алиса!');

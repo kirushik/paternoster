@@ -112,14 +112,15 @@ describe('BROADCAST_SIGNED serialization (XEdDSA, 67-byte overhead)', () => {
 describe('BROADCAST_SIGNED fingerprint collision handling', () => {
   it('verifies correct key even when a colliding-fingerprint wrong key is tried first', async () => {
     // Find any two keys that share a 2-byte fingerprint (birthday collision).
-    // With 65536 possible fingerprints, ~256 keys virtually guarantee a collision.
+    // With 65536 possible fingerprints and 1024 keys, collision probability is
+    // 1 - e^(-1024*1023/(2*65536)) ≈ 0.99999998 — effectively guaranteed.
     const { pubFingerprint } = await import('../../src/broadcast');
 
     const fpMap = new Map<string, { privateKey: Uint8Array; publicKey: Uint8Array }>();
     let sender: { privateKey: Uint8Array; publicKey: Uint8Array } | null = null;
     let imposterKey: Uint8Array | null = null;
 
-    const batch = await Promise.all(Array.from({ length: 512 }, () => generateKeyPair()));
+    const batch = await Promise.all(Array.from({ length: 1024 }, () => generateKeyPair()));
     for (const kp of batch) {
       const fp = await pubFingerprint(kp.publicKey);
       const fpHex = `${fp[0]},${fp[1]}`;
@@ -132,19 +133,18 @@ describe('BROADCAST_SIGNED fingerprint collision handling', () => {
       fpMap.set(fpHex, kp);
     }
 
-    if (!sender || !imposterKey) {
-      console.log('SKIP: no birthday collision in 512 keys (extremely unlikely)');
-      return;
-    }
+    // With 1024 keys, failure to find a collision is a test infrastructure bug, not bad luck.
+    expect(sender).not.toBeNull();
+    expect(imposterKey).not.toBeNull();
 
     const compressed = new Uint8Array([0x42]);
-    const frame = await serializeBroadcastSigned(compressed, COMP_LITERAL, sender.publicKey, sender.privateKey);
+    const frame = await serializeBroadcastSigned(compressed, COMP_LITERAL, sender!.publicKey, sender!.privateKey);
 
     // Imposter first, real sender second — must still verify as 'verified'
-    const parsed = await tryParseBroadcastSigned(frame, [imposterKey, sender.publicKey]);
+    const parsed = await tryParseBroadcastSigned(frame, [imposterKey!, sender!.publicKey]);
     expect(parsed).not.toBeNull();
     expect(parsed!.status).toBe('verified');
-    expect(parsed!.x25519Pub).toEqual(sender.publicKey);
+    expect(parsed!.x25519Pub).toEqual(sender!.publicKey);
   });
 });
 

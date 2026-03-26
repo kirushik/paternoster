@@ -2,6 +2,8 @@ node_modules/
 dist/
 .vitest-cache/
 coverage/
+reports/
+.stryker-tmp/
 .tmp/
 test-results/
 .tool-versions

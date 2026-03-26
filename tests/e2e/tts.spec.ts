@@ -82,13 +82,13 @@ test.describe('TTS functionality', () => {
     await mockVoices(page, ['ru-RU']);
 
     await page.fill('#input', 'Тест');
-    await page.waitForTimeout(300);
+    await expect(page.locator('#output')).not.toBeEmpty();
 
     await page.evaluate(() => { (window as any).__ttsCallArgs = null; });
     await mockSpeak(page, `window.__ttsCallArgs = { text: u.text, lang: u.lang };`);
 
     await page.click('#tts-btn');
-    await page.waitForTimeout(200);
+    await page.waitForFunction(() => (window as any).__ttsCallArgs !== null);
 
     const args = await page.evaluate(() => (window as any).__ttsCallArgs);
     expect(args).not.toBeNull();
@@ -103,13 +103,13 @@ test.describe('TTS functionality', () => {
 
     await page.selectOption('#theme-select', 'PATER');
     await page.fill('#input', 'Test message');
-    await page.waitForTimeout(300);
+    await expect(page.locator('#output')).not.toBeEmpty();
 
     await page.evaluate(() => { (window as any).__ttsLang = null; });
     await mockSpeak(page, `window.__ttsLang = u.lang;`);
 
     await page.click('#tts-btn');
-    await page.waitForTimeout(200);
+    await page.waitForFunction(() => (window as any).__ttsLang !== null);
 
     const lang = await page.evaluate(() => (window as any).__ttsLang);
     expect(lang).toBe('la');
@@ -122,13 +122,13 @@ test.describe('TTS functionality', () => {
 
     await page.selectOption('#theme-select', 'КИТАЙ');
     await page.fill('#input', 'Test');
-    await page.waitForTimeout(300);
+    await expect(page.locator('#output')).not.toBeEmpty();
 
     await page.evaluate(() => { (window as any).__ttsLang = null; });
     await mockSpeak(page, `window.__ttsLang = u.lang;`);
 
     await page.click('#tts-btn');
-    await page.waitForTimeout(200);
+    await page.waitForFunction(() => (window as any).__ttsLang !== null);
 
     const lang = await page.evaluate(() => (window as any).__ttsLang);
     expect(lang).toBe('zh-CN');
@@ -140,7 +140,7 @@ test.describe('TTS functionality', () => {
     await mockVoices(page, ['ru-RU']);
 
     await page.fill('#input', 'Текст для чтения');
-    await page.waitForTimeout(300);
+    await expect(page.locator('#output')).not.toBeEmpty();
 
     // Full mock: speak sets speaking=true, cancel sets speaking=false
     await page.evaluate(() => {

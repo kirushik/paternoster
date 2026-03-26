@@ -25,7 +25,7 @@ test.describe('per-theme roundtrip', () => {
 
     // Bob adds Alice via invite token
     await alicePage.click('[data-id="self"]');
-    await alicePage.waitForTimeout(200);
+    await expect(alicePage.locator('.invite-token')).toBeVisible();
     const aliceToken = await alicePage.locator('.invite-token').textContent();
 
     await bobPage.fill('#input', aliceToken!);
@@ -37,8 +37,7 @@ test.describe('per-theme roundtrip', () => {
 
     // Alice receives, saves Bob as contact
     await alicePage.fill('#input', encoded1);
-    await alicePage.waitForTimeout(300);
-    await expect(alicePage.locator('#save-contact-btn')).toBeVisible();
+    await expect(alicePage.locator('#save-contact-btn')).toBeVisible({ timeout: 5000 });
     await alicePage.click('#save-contact-btn');
     await fillDialogAndConfirm(alicePage, { 'Имя контакта': 'Bob' });
     await alicePage.locator('.contact-pill', { hasText: 'Bob' }).click();

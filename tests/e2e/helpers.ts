@@ -21,10 +21,10 @@ export async function fillDialogAndConfirm(
 /** Type a message, wait for encoding, click copy (commits to chat), return encoded text. */
 export async function sendMessage(page: Page, text: string): Promise<string> {
   await page.fill('#input', text);
-  await page.waitForTimeout(300); // debounce is 150ms
 
+  // Wait for debounced encoding to populate #output (debounce is 150ms)
   const output = page.locator('#output');
-  await expect(output).not.toBeEmpty();
+  await expect(output).not.toBeEmpty({ timeout: 5000 });
   const encoded = (await output.textContent())!;
   expect(encoded.length).toBeGreaterThan(10);
 

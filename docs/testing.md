@@ -13,11 +13,12 @@ Tests across three layers: unit, integration, and E2E. Tests follow the project'
 ## Commands
 
 ```bash
-npm test                 # Unit + integration (Vitest)
+npm test                 # Unit + integration + type tests (Vitest)
 npm test -- --coverage   # Same, with V8 coverage report
 npm run test:watch       # Vitest in watch mode
 npm run test:e2e         # Playwright E2E (requires: npx playwright install chromium)
 npm run test:all         # Both
+npm run test:mutate      # Stryker mutation testing (slow, ~10-15 min)
 ```
 
 Vitest uses a project-local cache dir (`.vitest-cache/`) to avoid sandbox tmp issues.
@@ -42,7 +43,8 @@ tests/
 │   ├── sign.test.ts          # XEdDSA sign/verify, Montgomery→Edwards, malformed signatures, degenerate keys (25)
 │   ├── broadcast.test.ts     # Broadcast frame serialize/parse, flags, verification states (16)
 │   ├── identity.test.ts      # Export/import roundtrip, wrong passphrase, corruption (6)
-│   └── properties.test.ts    # Property-based tests: random-input roundtrips for all core invariants (21)
+│   ├── properties.test.ts    # Property-based tests: random-input roundtrips for all core invariants (21)
+│   └── types.test-d.ts       # Compile-time type tests (Theme, crypto, stego, compress types)
 ├── integration/
 │   ├── pipeline.test.ts      # Full encrypt→stego→decrypt roundtrip per theme, including large messages, empty plaintext (49)
 │   ├── broadcast-pipeline.test.ts  # Full broadcast roundtrip per theme, signed+unsigned, empty plaintext (23)
@@ -79,6 +81,18 @@ When adding new encoding or serialization logic, add a corresponding property te
 ## Wire Format Snapshots
 
 `wire.test.ts` includes inline snapshots for CONTACT check bytes and frame layouts. These catch accidental wire format changes that would break interoperability. If you intentionally change the wire format, update the snapshots with `npx vitest run -u`.
+
+## Type Tests
+
+`tests/unit/types.test-d.ts` uses Vitest's `expectTypeOf` to verify compile-time constraints: Theme fields are `readonly`, `ThemeId` is an exhaustive union, crypto functions return correct types, etc. These run automatically with `npm test` (via `typecheck.enabled: true` in vitest config). They never execute at runtime — Vitest runs `tsc` and checks type assertions.
+
+## Mutation Testing
+
+Stryker (`npm run test:mutate`) mutates source code and reruns tests to find assertions that don't actually verify anything. Config is in `stryker.config.json`, targeting critical modules (crypto, stego, compress, wire, broadcast, utils, sign, smaz, squash). HTML report goes to `reports/mutation/` (gitignored). Run locally as needed — not in CI (too slow, ~10-15 min).
+
+## E2E Wait Strategy
+
+E2E tests use state-based waits (Playwright auto-retry assertions like `expect(locator).not.toBeEmpty()`) instead of `waitForTimeout()`. This makes tests robust on slow CI runners. If you need to wait for an async operation, always wait for a specific DOM state change, not a fixed delay.
 
 ## CI
 

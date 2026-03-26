@@ -21,12 +21,10 @@ async function composeBroadcast(
     await signCheckbox.click();
   }
 
-  // Type message and wait for output
+  // Type message and wait for output (XEdDSA signing + debounce)
   await page.fill('#input', text);
-  await page.waitForTimeout(500); // XEdDSA signing can take ~30ms, plus debounce
-
   const output = page.locator('#output');
-  await expect(output).not.toBeEmpty();
+  await expect(output).not.toBeEmpty({ timeout: 5000 });
   return (await output.textContent())!;
 }
 
@@ -52,10 +50,9 @@ test.describe('XEdDSA browser verification', () => {
     // Exit broadcast mode and paste the encoded text back
     await exitBroadcastModeViaToggle(page);
     await page.fill('#input', encoded);
-    await page.waitForTimeout(1000);
 
     // Own signed broadcast — shows as "Ваша публикация"
-    await expect(page.locator('#output-mode-label')).toHaveText('Ваша публикация');
+    await expect(page.locator('#output-mode-label')).toHaveText('Ваша публикация', { timeout: 5000 });
     await expect(page.locator('#output')).toHaveText('Тест в браузере');
   });
 });
@@ -123,12 +120,11 @@ test.describe('broadcast mode auto-detect pasted content', () => {
 
     // Clear input, paste the broadcast back while still in broadcast mode
     await page.fill('#input', '');
-    await page.waitForTimeout(200);
+    await expect(page.locator('#output')).toBeEmpty();
     await page.fill('#input', encoded);
-    await page.waitForTimeout(1000);
 
     // Should decode as own broadcast, stay in broadcast mode
-    await expect(page.locator('#output-mode-label')).toHaveText('Ваша публикация');
+    await expect(page.locator('#output-mode-label')).toHaveText('Ваша публикация', { timeout: 5000 });
     await expect(page.locator('#output')).toHaveText('Мой тест');
     // Banner still visible — still in broadcast mode
     await expect(page.locator('#broadcast-banner')).toBeVisible();
@@ -143,12 +139,11 @@ test.describe('broadcast mode auto-detect pasted content', () => {
 
     // Clear and re-paste while in broadcast mode
     await page.fill('#input', '');
-    await page.waitForTimeout(200);
+    await expect(page.locator('#output')).toBeEmpty();
     await page.fill('#input', encoded);
-    await page.waitForTimeout(500);
 
     // Should decode in broadcast mode
-    await expect(page.locator('#output-mode-label')).toHaveText('Публикация · без подписи');
+    await expect(page.locator('#output-mode-label')).toHaveText('Публикация · без подписи', { timeout: 5000 });
     await expect(page.locator('#output')).toHaveText('Анонимка');
     await expect(page.locator('#broadcast-banner')).toBeVisible();
   });
@@ -169,7 +164,7 @@ test.describe('broadcast mode auto-detect pasted content', () => {
 
     // Key exchange: Bob adds Alice
     await alice.click('[data-id="self"]');
-    await alice.waitForTimeout(200);
+    await expect(alice.locator('.invite-token')).toBeVisible();
     const aliceToken = await alice.locator('.invite-token').textContent();
 
     await bob.fill('#input', aliceToken!);
@@ -178,7 +173,7 @@ test.describe('broadcast mode auto-detect pasted content', () => {
 
     // Alice adds Bob
     await bob.click('[data-id="self"]');
-    await bob.waitForTimeout(200);
+    await expect(bob.locator('.invite-token')).toBeVisible();
     const bobToken = await bob.locator('.invite-token').textContent();
     await alice.fill('#input', bobToken!);
     await fillDialogAndConfirm(alice, { 'Имя контакта': 'Bob' });
@@ -186,7 +181,7 @@ test.describe('broadcast mode auto-detect pasted content', () => {
     // Alice sends an INTRO message to Bob
     await alice.locator('.contact-pill', { hasText: 'Bob' }).click();
     await alice.fill('#input', 'Привет Боб');
-    await alice.waitForTimeout(500);
+    await expect(alice.locator('#output')).not.toBeEmpty({ timeout: 5000 });
     const encodedMsg = await alice.locator('#output').textContent();
 
     // Bob enters broadcast mode
@@ -195,10 +190,9 @@ test.describe('broadcast mode auto-detect pasted content', () => {
 
     // Bob pastes Alice's encrypted message while in broadcast mode
     await bob.fill('#input', encodedMsg!);
-    await bob.waitForTimeout(2000);
 
     // Should auto-switch to regular mode (banner gone)
-    await expect(bob.locator('#broadcast-banner')).toHaveCount(0);
+    await expect(bob.locator('#broadcast-banner')).toHaveCount(0, { timeout: 5000 });
     const bodyClass = await bob.evaluate(() => document.body.className);
     expect(bodyClass).not.toContain('broadcast-active');
 
@@ -216,7 +210,7 @@ test.describe('broadcast mode auto-detect pasted content', () => {
 
     // Type plain text — should encode as broadcast
     await page.fill('#input', 'Простой текст');
-    await page.waitForTimeout(500);
+    await expect(page.locator('#output')).not.toBeEmpty({ timeout: 5000 });
 
     const label = await page.locator('#output-mode-label').textContent();
     expect(label).toMatch(/^Публикация/);
@@ -245,15 +239,12 @@ test.describe('signed broadcast with identity verification', () => {
     // ── Phase 1: Key exchange — Bob adds Alice as contact ──
 
     await alice.click('[data-id="self"]');
-    await alice.waitForTimeout(200);
+    await expect(alice.locator('.invite-token')).toBeVisible();
     const aliceToken = await alice.locator('.invite-token').textContent();
 
     await bob.fill('#input', aliceToken!);
     await fillDialogAndConfirm(bob, { 'Имя контакта': 'Alice' });
     await expect(bob.locator('.contact-pill', { hasText: 'Alice' })).toBeVisible();
-
-    // Wait for fingerprint cache to populate (async SHA-256)
-    await bob.waitForTimeout(500);
 
     // ── Phase 2: Alice composes a signed broadcast ──
 
@@ -292,9 +283,8 @@ test.describe('signed broadcast with identity verification', () => {
     // Switch back to messaging mode and paste
     await exitBroadcastModeViaToggle(page);
     await page.fill('#input', encoded);
-    await page.waitForTimeout(300);
 
-    await expect(page.locator('#output-mode-label')).toHaveText('Публикация · без подписи');
+    await expect(page.locator('#output-mode-label')).toHaveText('Публикация · без подписи', { timeout: 5000 });
     await expect(page.locator('#output')).toHaveText(broadcastText);
   });
 
@@ -314,12 +304,11 @@ test.describe('signed broadcast with identity verification', () => {
 
     // Key exchange
     await alice.click('[data-id="self"]');
-    await alice.waitForTimeout(200);
+    await expect(alice.locator('.invite-token')).toBeVisible();
     const aliceToken = await alice.locator('.invite-token').textContent();
     await bob.fill('#input', aliceToken!);
     await fillDialogAndConfirm(bob, { 'Имя контакта': 'Alice' });
     await expect(bob.locator('.contact-pill', { hasText: 'Alice' })).toBeVisible();
-    await bob.waitForTimeout(500);
 
     // Alice sends signed broadcast
     const encoded = await composeBroadcast(alice, 'Один раз', true);
@@ -361,9 +350,9 @@ test.describe('signed broadcast with identity verification', () => {
 
     // Bob pastes it — Alice is NOT in his contacts
     await bob.fill('#input', encoded);
-    await bob.waitForTimeout(500);
 
     // Should show as unknown sender with fingerprint code
+    await expect(bob.locator('#output-mode-label')).not.toBeEmpty({ timeout: 5000 });
     const label = await bob.locator('#output-mode-label').textContent();
     expect(label).toMatch(/^Публикация · неизвестный отправитель \(код [0-9A-F]{4}\)$/);
     await expect(bob.locator('#output')).toHaveText(broadcastText);
@@ -373,7 +362,7 @@ test.describe('signed broadcast with identity verification', () => {
     const encoded2 = await composeBroadcast(alice, 'Это снова я', true);
 
     await bob.fill('#input', encoded2);
-    await bob.waitForTimeout(500);
+    await expect(bob.locator('#output')).toHaveText('Это снова я', { timeout: 5000 });
 
     const label2 = await bob.locator('#output-mode-label').textContent();
     expect(label2).toBe(label); // same fingerprint = same sender
