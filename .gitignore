@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .vitest-cache/
+coverage/
 .tmp/
 test-results/
 .tool-versions
