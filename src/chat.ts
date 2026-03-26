@@ -14,6 +14,8 @@ export interface ChatMessage {
   senderName?: string;
   timestamp: number;
   theme: ThemeId;
+  /** 'broadcast' for broadcast messages, defaults to 'message' for backward compat. */
+  type?: 'message' | 'broadcast';
 }
 
 function chatStorageKey(contactId: string): string {

@@ -8,7 +8,7 @@ Tests across three layers: unit, integration, and E2E. Tests follow the project'
 
 **Integration tests** (Vitest, 41 tests) verify the full pipeline: plaintext → compress → encrypt → wire → stego → and back. These catch mismatches between modules (e.g., wire format serialized differently than expected by the decoder, or compression flags not handled by decompressor).
 
-**E2E tests** (Playwright, 25 tests) verify the actual browser experience. Page loads, key generation persists across reloads, typing produces encoded output, two browser contexts exchange messages with multi-round back-and-forth conversation, invite links work, TTS button calls speechSynthesis with the correct language, and every theme roundtrips correctly through two-party encode→decode. These catch DOM wiring bugs and browser API issues that unit tests can't see.
+**E2E tests** (Playwright, 42 tests) verify the actual browser experience. Page loads, key generation persists across reloads, typing produces encoded output, two browser contexts exchange messages with multi-round back-and-forth conversation, invite links work, TTS button calls speechSynthesis with the correct language, every theme roundtrips correctly through two-party encode→decode, and broadcast mode UX (warm background, banner exit, auto-detect of pasted content including P2P auto-switch). These catch DOM wiring bugs and browser API issues that unit tests can't see.
 
 ## Commands
 
@@ -34,18 +34,22 @@ tests/
 │   ├── stego.test.ts         # All models × all byte values, auto-detect, edge cases (39)
 │   ├── dictionaries.test.ts  # Table sizes, uniqueness, prefix-free (30)
 │   ├── contacts.test.ts      # CRUD with localStorage mock, schema validation (17)
+│   ├── sign.test.ts          # XEdDSA sign/verify, Montgomery→Edwards conversion, edge cases
+│   ├── broadcast.test.ts     # Broadcast frame serialize/parse, flags, verification states
 │   └── identity.test.ts      # Export/import roundtrip, wrong passphrase, corruption (5)
 ├── integration/
 │   ├── pipeline.test.ts      # Full encrypt→stego→decrypt roundtrip per theme (24)
+│   ├── broadcast-pipeline.test.ts  # Full broadcast roundtrip per theme, signed+unsigned (21)
 │   ├── contact-exchange.test.ts  # Contact token through stego roundtrip (9)
 │   └── invite.test.ts        # Base64url token generate/parse (8)
 └── e2e/
     ├── helpers.ts            # Shared helpers: fillDialogAndConfirm, sendMessage, receiveFromKnown
     ├── basic.spec.ts         # Page load, key persistence, encode, copy, download (6)
-    ├── contacts.spec.ts      # Contact add/remove, invite link import (4)
+    ├── contacts.spec.ts      # Contact add/remove/delete, invite link import, identity export/import (8)
     ├── conversation.spec.ts  # Full multi-round conversation with key exchange confirmation (1)
     ├── crypto-roundtrip.spec.ts  # Alice↔Bob single message exchange (1)
     ├── theme-roundtrip.spec.ts   # Per-theme encode→decode roundtrip, all 8 themes (8)
+    ├── broadcast.spec.ts     # Broadcast mode UX (banner, warm background, auto-detect), signed/unsigned, verification, dedup (12)
     └── tts.spec.ts           # Button behavior, language per theme (5)
 ```
 

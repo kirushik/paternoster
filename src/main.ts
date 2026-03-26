@@ -23,6 +23,7 @@ import {
 import { speak, stopSpeaking, isSpeaking, hasVoiceForLang, onVoicesChanged } from './tts';
 import { exportIdentity, importIdentity } from './identity';
 import { loadChat, addChatMessage, clearChat, randomChatId } from './chat';
+import { tryParseBroadcastSigned, tryParseBroadcastUnsigned, serializeBroadcastSigned, serializeBroadcastUnsigned } from './broadcast';
 
 // ── State ───────────────────────────────────────────────
 
@@ -32,6 +33,8 @@ let contacts: Contact[] = [];
 let selectedContactId: string | null = null;
 let selectedTheme: ThemeId = 'БОЖЕ';
 let lastDecodedSender: string | null = null;
+let broadcastMode = false;
+let broadcastSigned = false;
 let copyableText = '';
 let copyLabel = '📋 Скопировать';
 let ttsText = '';
@@ -77,6 +80,9 @@ async function init(): Promise<void> {
 
   // Pre-compute verification codes (async, updates UI when ready)
   refreshContactCodes();
+
+  // Register voiceschanged listener once (not in wireEvents, which re-runs on mode toggle)
+  onVoicesChanged(updateTtsAvailability);
 
   // Check URL hash for invite token
   await checkHashInvite();
@@ -265,22 +271,40 @@ function showDialog(config: {
 
 function render(): void {
   const app = document.getElementById('app')!;
+  document.body.classList.toggle('broadcast-active', broadcastMode);
   app.innerHTML = `
+    ${broadcastMode ? `
+    <div class="broadcast-banner" id="broadcast-banner">
+      <span class="broadcast-banner-label">📢 Публикация</span>
+      <button class="broadcast-banner-close" id="broadcast-exit" title="Вернуться к переписке">✕</button>
+    </div>` : ''}
     <div class="contacts-bar" id="contacts-bar"></div>
     <div class="chat-area" id="chat-area"></div>
-    <textarea id="input" placeholder="Вставьте код, ссылку или сообщение — приложение само поймёт" rows="4"></textarea>
+    <textarea id="input" placeholder="${broadcastMode
+      ? 'Введите сообщение для публикации'
+      : 'Вставьте код, ссылку или сообщение — приложение само поймёт'}" rows="4"></textarea>
     <div class="output-area">
       <div id="output-mode-label" class="output-mode-label"></div>
       <div id="output" class="output-label"></div>
       <div class="output-actions" id="output-actions">
         <select id="theme-select" title="Словарь"></select>
+        ${broadcastMode ? `
+        <label class="broadcast-sign-check" id="broadcast-sign-label">
+          <input type="checkbox" id="broadcast-sign-toggle"${broadcastSigned ? ' checked' : ''}>
+          Подписанное
+        </label>` : ''}
         <button id="copy-btn" class="action-btn" title="Скопировать">📋 Скопировать</button>
         <button id="tts-btn" class="action-btn" title="Прочитать вслух">🔊</button>
       </div>
     </div>
     <div id="error" class="error"></div>
     <div id="status" class="status-bar"></div>
-    <button id="download-btn" class="download-btn" title="Скачать приложение">⬇ Скачать</button>
+    <div class="footer-bar">
+      <button id="mode-toggle" class="mode-toggle-btn${broadcastMode ? ' active' : ''}" title="${broadcastMode ? 'Переписка' : 'Публикация'}">
+        ${broadcastMode ? '✉' : '📢'}
+      </button>
+      <button id="download-btn" class="download-btn" title="Скачать приложение">⬇ Скачать</button>
+    </div>
   `;
 
   inputEl = $('input') as HTMLTextAreaElement;
@@ -358,9 +382,17 @@ function renderChat(): void {
   chatEl.textContent = '';
 
   for (const msg of messages) {
+    const isBroadcast = msg.type === 'broadcast';
     const bubble = document.createElement('div');
-    bubble.className = `chat-message ${msg.direction}`;
+    bubble.className = `chat-message ${msg.direction}${isBroadcast ? ' broadcast' : ''}`;
     bubble.dataset.msgId = msg.id;
+
+    if (isBroadcast) {
+      const label = document.createElement('div');
+      label.className = 'chat-broadcast-label';
+      label.textContent = 'Публикация';
+      bubble.appendChild(label);
+    }
 
     const text = document.createElement('div');
     text.className = 'chat-text';
@@ -476,6 +508,26 @@ function showError(msg: string): void {
   setTimeout(() => { errorEl.textContent = ''; }, 5000);
 }
 
+function enterBroadcastMode(): void {
+  broadcastMode = true;
+  document.body.classList.add('broadcast-active');
+  render();
+  wireEvents();
+  contactsEl.style.display = 'none';
+  ($('chat-area') as HTMLDivElement).style.display = 'none';
+  processInput();
+  refreshContactCodes();
+}
+
+function exitBroadcastMode(): void {
+  broadcastMode = false;
+  document.body.classList.remove('broadcast-active');
+  render();
+  wireEvents();
+  processInput();
+  refreshContactCodes();
+}
+
 // ── Events ──────────────────────────────────────────────
 
 function wireEvents(): void {
@@ -494,9 +546,8 @@ function wireEvents(): void {
     processInput();
   });
 
-  // TTS: check voice availability on init and when voices load asynchronously
+  // TTS: check voice availability on init
   updateTtsAvailability();
-  onVoicesChanged(updateTtsAvailability);
 
   contactsEl.addEventListener('click', (e) => {
     // Check if × delete button was clicked
@@ -529,6 +580,30 @@ function wireEvents(): void {
   copyBtn.addEventListener('click', handleCopy);
   ttsBtn.addEventListener('click', handleTts);
   $('download-btn').addEventListener('click', handleDownload);
+
+  $('mode-toggle').addEventListener('click', () => {
+    if (broadcastMode) {
+      exitBroadcastMode();
+    } else {
+      enterBroadcastMode();
+    }
+  });
+
+  if (broadcastMode) {
+    const exitBtn = document.getElementById('broadcast-exit');
+    if (exitBtn) {
+      exitBtn.addEventListener('click', () => exitBroadcastMode());
+    }
+    const signToggle = document.getElementById('broadcast-sign-toggle') as HTMLInputElement | null;
+    if (signToggle) {
+      signToggle.addEventListener('change', () => {
+        broadcastSigned = signToggle.checked;
+        processInput();
+      });
+    }
+    // Hide contacts bar in broadcast mode
+    contactsEl.style.display = 'none';
+  }
 }
 
 function autoGrow(el: HTMLTextAreaElement): void {
@@ -551,6 +626,28 @@ async function processInput(): Promise<void> {
     ttsText = '';
     lastDecodedSender = null;
     updateStatus();
+    return;
+  }
+
+  // Broadcast mode: try to decode first, fall through to encode
+  if (broadcastMode) {
+    // Try invite token — auto-switch to regular mode
+    const inviteKey = tryParseInviteToken(text);
+    if (inviteKey) {
+      exitBroadcastMode();
+      await handleContactToken(inviteKey);
+      return;
+    }
+
+    // Try to decode pasted content
+    const decoded = stegoDecode(text);
+    if (decoded) {
+      const handled = await handleBroadcastModeDecode(decoded.bytes, decoded.theme);
+      if (handled) return;
+    }
+
+    // Nothing decoded — encode as broadcast
+    await handleBroadcastEncode(text);
     return;
   }
 
@@ -606,6 +703,121 @@ async function handleEncode(plaintext: string): Promise<void> {
   } catch (e) {
     showError(`Ошибка шифрования: ${(e as Error).message}`);
   }
+}
+
+/** Encode text as a broadcast message (signed or unsigned). */
+async function handleBroadcastEncode(plaintext: string): Promise<void> {
+  lastDecodedSender = null;
+
+  try {
+    const { payload: compressed, compMode } = compress(plaintext);
+    let wireFrame: Uint8Array;
+
+    if (broadcastSigned) {
+      wireFrame = await serializeBroadcastSigned(
+        compressed, compMode,
+        myPublicKey, myPrivateKey,
+      );
+      setOutputLabel('Подписанная публикация');
+    } else {
+      wireFrame = serializeBroadcastUnsigned(compressed, compMode);
+      setOutputLabel('Публикация без подписи');
+    }
+
+    const stegoText = stegoEncode(wireFrame, selectedTheme);
+    outputEl.textContent = stegoText;
+    setCopyableText(stegoText, 'Скопировать публикацию');
+    ttsText = stegoText;
+    updateBroadcastStatus();
+  } catch (e) {
+    showError(`Ошибка: ${(e as Error).message}`);
+  }
+}
+
+function updateBroadcastStatus(): void {
+  const outputLen = outputEl.textContent?.length ?? 0;
+  const parts = [broadcastSigned ? 'подписано' : 'без подписи', selectedTheme];
+  if (outputLen > 0) parts.push(`${outputLen} символов`);
+  statusEl.textContent = parts.join(' · ');
+}
+
+/**
+ * Attempt to decode pasted content in broadcast mode.
+ * Broadcasts stay in broadcast mode; P2P messages and contacts auto-switch to regular.
+ * Returns true if content was handled (decoded or switched).
+ */
+async function handleBroadcastModeDecode(bytes: Uint8Array, _theme: ThemeId): Promise<boolean> {
+  // 1. Try as signed broadcast — stay in broadcast mode
+  const candidateKeys = [myPublicKey, ...contacts.map(c => getContactKey(c))];
+  const signed = await tryParseBroadcastSigned(bytes, candidateKeys);
+  if (signed) {
+    try {
+      const plaintext = decompress(signed.compressed, signed.compMode);
+      await handleDecodedBroadcast(plaintext, signed, _theme);
+      return true;
+    } catch { /* fall through */ }
+  }
+
+  // 2. Try as unsigned broadcast — stay in broadcast mode
+  const unsigned = tryParseBroadcastUnsigned(bytes);
+  if (unsigned) {
+    try {
+      const plaintext = decompress(unsigned.compressed, unsigned.compMode);
+      handleDecodedBroadcastUnsigned(plaintext, _theme);
+      return true;
+    } catch { /* fall through */ }
+  }
+
+  // 3. Try as MSG — auto-switch to regular mode
+  if (couldBeMsg(bytes)) {
+    const keysToTry: { name: string; key: Uint8Array; contactId?: string }[] = [];
+    for (const c of contacts) {
+      keysToTry.push({ name: c.name, key: getContactKey(c), contactId: c.id });
+    }
+    if (!keysToTry.some(e => u8eq(e.key, myPublicKey))) {
+      keysToTry.push({ name: 'Я', key: myPublicKey });
+    }
+
+    for (const { name, key, contactId } of keysToTry) {
+      try {
+        const decrypted = await decrypt(bytes, myPrivateKey, key, key, myPublicKey, CLASS_MSG);
+        const compMode = seedCompMode(bytes[0]);
+        const plaintext = decompress(decrypted, compMode);
+        exitBroadcastMode();
+        handleDecodedMsg(plaintext, name, contactId, _theme);
+        return true;
+      } catch {
+        // Auth failed — try next key
+      }
+    }
+  }
+
+  // 4. Try as INTRO — auto-switch to regular mode
+  if (couldBeIntro(bytes)) {
+    const { ephPub, payload: introPayload } = splitIntro(bytes);
+    try {
+      const decrypted = await decryptIntro(introPayload, myPrivateKey, ephPub, ephPub, myPublicKey);
+      if (decrypted.length < 34) throw new Error('payload too short');
+      const compMode = decrypted[0];
+      const senderPub = decrypted.slice(1, 33);
+      const plaintext = decompress(decrypted.slice(33), compMode);
+      exitBroadcastMode();
+      await handleDecodedIntro(senderPub, plaintext, _theme);
+      return true;
+    } catch {
+      // Not an intro — fall through
+    }
+  }
+
+  // 5. Try as CONTACT — auto-switch to regular mode
+  const contactPub = tryParseContact(bytes);
+  if (contactPub) {
+    exitBroadcastMode();
+    await handleContactToken(contactPub);
+    return true;
+  }
+
+  return false; // Nothing recognized — caller will broadcast-encode
 }
 
 /** Shared logic: process a successfully decoded introduction (sender pub + plaintext). */
@@ -729,15 +941,105 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
     }
   }
 
-  // 3. Try as CONTACT: pub = bytes[0:32], check = bytes[32]
+  // 3. Try as BROADCAST_SIGNED (try all known keys as candidates)
+  const candidateKeys = [myPublicKey, ...contacts.map(c => getContactKey(c))];
+  const signed = await tryParseBroadcastSigned(bytes, candidateKeys);
+  if (signed) {
+    try {
+      const plaintext = decompress(signed.compressed, signed.compMode);
+      await handleDecodedBroadcast(plaintext, signed, _theme);
+      return;
+    } catch {
+      // Decompression failed (e.g. reserved compMode=3) — not a valid broadcast, fall through
+    }
+  }
+
+  // 4. Try as CONTACT: pub = bytes[0:32], check = bytes[32]
   const contactPub = tryParseContact(bytes);
   if (contactPub) {
     await handleContactToken(contactPub);
     return;
   }
 
+  // 5. Try as BROADCAST_UNSIGNED
+  const unsigned = tryParseBroadcastUnsigned(bytes);
+  if (unsigned) {
+    try {
+      const plaintext = decompress(unsigned.compressed, unsigned.compMode);
+      handleDecodedBroadcastUnsigned(plaintext, _theme);
+      return;
+    } catch {
+      // Decompression failed — not a valid broadcast, fall through
+    }
+  }
+
   // Nothing worked — treat as plaintext to encode
   await handleEncode(inputEl.value.trim());
+}
+
+/** Handle a decoded signed broadcast with three verification states. */
+async function handleDecodedBroadcast(
+  plaintext: string,
+  result: import('./broadcast').BroadcastSigned,
+  _theme: ThemeId,
+): Promise<void> {
+  const knownSender = result.x25519Pub ? findContactByKey(result.x25519Pub) : null;
+  outputEl.textContent = plaintext;
+  ttsText = inputEl.value.trim();
+  const fpHex = Array.from(result.fingerprint).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+
+  const isOwnBroadcast = result.status === 'verified' && result.x25519Pub && u8eq(result.x25519Pub, myPublicKey);
+
+  if (isOwnBroadcast) {
+    // Own broadcast — show decoded for verification, don't add to chat
+    lastDecodedSender = null;
+    setOutputLabel('Ваша публикация');
+    setCopyableText(plaintext, 'Скопировать текст');
+  } else if (result.status === 'verified' && knownSender) {
+    lastDecodedSender = knownSender.name;
+    setOutputLabel(`Публикация · от ${knownSender.name}`);
+    setCopyableText(plaintext, 'Скопировать текст');
+
+    const chatResult = addChatMessage({
+      id: randomChatId(), direction: 'received', plaintext,
+      encoded: inputEl.value.trim(), contactId: knownSender.id,
+      senderName: knownSender.name, timestamp: Date.now(), theme: _theme,
+      type: 'broadcast',
+    });
+    if (selectedContactId !== knownSender.id) {
+      selectedContactId = knownSender.id;
+      setSelectedContactId(knownSender.id);
+      renderContacts();
+    }
+    renderChat();
+    if (!chatResult.added) flashChatMessage(chatResult.duplicateId);
+    inputEl.value = '';
+    autoGrow(inputEl);
+    outputEl.textContent = '';
+    setOutputLabel('');
+    setCopyableText('', '📋 Скопировать');
+    ttsText = '';
+  } else if (result.status === 'failed') {
+    lastDecodedSender = null;
+    setOutputLabel(`Публикация · подпись не прошла проверку (код ${fpHex})`);
+    setCopyableText(plaintext, 'Скопировать текст');
+  } else {
+    // unverified — unknown sender, no matching fingerprint
+    lastDecodedSender = null;
+    setOutputLabel(`Публикация · неизвестный отправитель (код ${fpHex})`);
+    setCopyableText(plaintext, 'Скопировать текст');
+  }
+  updateStatus();
+}
+
+/** Handle a decoded unsigned broadcast (no sender identity). */
+function handleDecodedBroadcastUnsigned(plaintext: string, _theme: ThemeId): void {
+  lastDecodedSender = null;
+  outputEl.textContent = plaintext;
+  setOutputLabel('Публикация · без подписи');
+  setCopyableText(plaintext, 'Скопировать текст');
+  ttsText = inputEl.value.trim();
+  updateStatus();
 }
 
 function addSaveContactBtn(): void {
@@ -787,6 +1089,7 @@ async function handleSavePendingContact(): Promise<void> {
     senderName: name,
     timestamp: Date.now(),
     theme: pendingNewContact.theme,
+    type: 'message',
   });
 
   pendingNewContact = null;
