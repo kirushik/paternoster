@@ -82,6 +82,21 @@ describe('pipeline with various message types', () => {
   });
 });
 
+describe('large message pipeline (safety counter regression)', () => {
+  const largeText = 'Съешь же ещё этих мягких французских булок, да выпей чаю. '.repeat(100);
+  const themes: ThemeId[] = ['БОЖЕ', 'РОССИЯ', 'СССР', 'БУХАЮ', 'КИТАЙ', 'PATER', '🙂', 'hex'];
+
+  for (const themeId of themes) {
+    it(`roundtrips large text (~5800 chars) through ${themeId} without introduction`, async () => {
+      expect(await fullRoundtrip(largeText, themeId, false)).toBe(largeText);
+    });
+
+    it(`roundtrips large text (~5800 chars) through ${themeId} with introduction`, async () => {
+      expect(await fullRoundtrip(largeText, themeId, true)).toBe(largeText);
+    });
+  }
+});
+
 describe('cross-key encryption', () => {
   it('Alice encrypts for Bob, Bob decrypts', async () => {
     const alice = await generateKeyPair();

@@ -59,7 +59,8 @@ function decoder16(s: string, tab: Theme): Uint8Array | null {
   const t2 = normalizeTab(tab.tab2) ?? t1;
   const nibbles: number[] = [];
 
-  let safety = 10000;
+  // Safety bound: each iteration consumes ≥1 char, so remainder.length is an upper bound.
+  let safety = remainder.length + 1;
   while (--safety && remainder.length > 0) {
     let found = -1;
     for (let i = 0; i < 16; i++) {
@@ -115,7 +116,8 @@ function decoder64(s: string, tab: Theme): Uint8Array | null {
   const t3 = normalizeTab(tab.tab3)!;
   const pairs: number[] = [];
 
-  let safety = 10000;
+  // Safety bound: each iteration consumes ≥1 char, so remainder.length is an upper bound.
+  let safety = remainder.length + 1;
   while (--safety && remainder.length > 0) {
     let lo = -1;
     for (let i = 0; i < 4; i++) {

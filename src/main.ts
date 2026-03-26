@@ -25,6 +25,10 @@ import { exportIdentity, importIdentity } from './identity';
 import { loadChat, addChatMessage, clearChat, randomChatId } from './chat';
 import { tryParseBroadcastSigned, tryParseBroadcastUnsigned, serializeBroadcastSigned, serializeBroadcastUnsigned } from './broadcast';
 
+/** Max stego output characters. Keeps output within common messenger limits
+ *  and ensures fast decoding on slow devices (~1s at 50x slowdown). */
+const MAX_STEGO_CHARS = 50_000;
+
 // ── State ───────────────────────────────────────────────
 
 let myPrivateKey: Uint8Array;
@@ -695,6 +699,14 @@ async function handleEncode(plaintext: string): Promise<void> {
     }
 
     const stegoText = stegoEncode(wireFrame, selectedTheme);
+    if (stegoText.length > MAX_STEGO_CHARS) {
+      outputEl.textContent = '';
+      setOutputLabel(`Сообщение слишком длинное (${stegoText.length} символов, максимум ${MAX_STEGO_CHARS})`);
+      setCopyableText('', '📋 Скопировать');
+      ttsText = '';
+      updateStatus('слишком длинное');
+      return;
+    }
     outputEl.textContent = stegoText;
     setOutputLabel(contact ? 'Зашифровано' : 'Зашифровано для себя');
     setCopyableText(stegoText, 'Скопировать сообщение');
@@ -725,6 +737,14 @@ async function handleBroadcastEncode(plaintext: string): Promise<void> {
     }
 
     const stegoText = stegoEncode(wireFrame, selectedTheme);
+    if (stegoText.length > MAX_STEGO_CHARS) {
+      outputEl.textContent = '';
+      setOutputLabel(`Сообщение слишком длинное (${stegoText.length} символов, максимум ${MAX_STEGO_CHARS})`);
+      setCopyableText('', '📋 Скопировать');
+      ttsText = '';
+      updateBroadcastStatus();
+      return;
+    }
     outputEl.textContent = stegoText;
     setCopyableText(stegoText, 'Скопировать публикацию');
     ttsText = stegoText;
@@ -973,8 +993,13 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
     }
   }
 
-  // Nothing worked — treat as plaintext to encode
-  await handleEncode(inputEl.value.trim());
+  // Nothing worked — show error instead of silently re-encrypting
+  lastDecodedSender = null;
+  outputEl.textContent = '';
+  setOutputLabel('Не удалось расшифровать');
+  setCopyableText('', '📋 Скопировать');
+  ttsText = '';
+  updateStatus('ошибка расшифровки');
 }
 
 /** Handle a decoded signed broadcast with three verification states. */
