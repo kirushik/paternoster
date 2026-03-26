@@ -77,6 +77,26 @@ describe('tryParseContact', () => {
     wire[32] ^= 0xFF;
     expect(await tryParseContact(wire)).toBeNull();
   });
+
+  it('rejects when only second check byte is wrong', async () => {
+    const pub = crypto.getRandomValues(new Uint8Array(32));
+    const wire = await serializeContact(pub);
+    // Keep byte 32 correct, corrupt only byte 33
+    wire[33] ^= 0xFF;
+    expect(await tryParseContact(wire)).toBeNull();
+  });
+
+  it('rejects 33 bytes even if first 32 have valid check bytes for their prefix', async () => {
+    const data = new Uint8Array(33);
+    data.set(crypto.getRandomValues(new Uint8Array(33)));
+    expect(await tryParseContact(data)).toBeNull();
+  });
+
+  it('rejects 35 bytes', async () => {
+    const data = new Uint8Array(35);
+    data.set(crypto.getRandomValues(new Uint8Array(35)));
+    expect(await tryParseContact(data)).toBeNull();
+  });
 });
 
 describe('length checks', () => {

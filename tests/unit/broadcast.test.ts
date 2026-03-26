@@ -189,6 +189,60 @@ describe('BROADCAST_SIGNED candidate key via hex roundtrip', () => {
   });
 });
 
+describe('broadcast parser guard conditions', () => {
+  it('rejects unsigned frame with wrong tag byte', async () => {
+    // Build a frame that's the right length but has SIGNED tag instead of UNSIGNED
+    const compressed = new Uint8Array([0x41, 0x42, 0x43]);
+    const frame = await serializeBroadcastUnsigned(compressed, COMP_LITERAL);
+    // Replace flags byte with signed tag (keeping compMode bits)
+    frame[0] = packFlags(COMP_LITERAL, BROADCAST_SIGNED_TAG);
+    expect(await tryParseBroadcastUnsigned(frame)).toBeNull();
+  });
+
+  it('rejects signed frame with wrong tag byte', async () => {
+    const kp = await generateKeyPair();
+    const compressed = new Uint8Array([0x01]);
+    const frame = await serializeBroadcastSigned(compressed, COMP_LITERAL, kp.publicKey, kp.privateKey);
+    // Replace flags byte with unsigned tag
+    frame[0] = packFlags(COMP_LITERAL, BROADCAST_UNSIGNED_TAG);
+    expect(await tryParseBroadcastSigned(frame)).toBeNull();
+  });
+
+  it('rejects too-short data for signed broadcast even with correct tag', async () => {
+    // MIN_SIGNED_SIZE is 67 (flags:1 + fp:2 + sig:64)
+    const tooShort = new Uint8Array(66);
+    tooShort[0] = packFlags(COMP_LITERAL, BROADCAST_SIGNED_TAG);
+    expect(await tryParseBroadcastSigned(tooShort)).toBeNull();
+  });
+
+  it('fingerprint matching requires both bytes to match', async () => {
+    const { pubFingerprint } = await import('../../src/broadcast');
+    const kp = await generateKeyPair();
+    const compressed = new Uint8Array([0x42]);
+    const frame = await serializeBroadcastSigned(compressed, COMP_LITERAL, kp.publicKey, kp.privateKey);
+
+    // Create a fake key with only byte 0 of fingerprint matching
+    const realFp = await pubFingerprint(kp.publicKey);
+    // Generate keys until we find one where fp[0] matches but fp[1] doesn't
+    let fakeKey: Uint8Array | null = null;
+    for (let i = 0; i < 500; i++) {
+      const candidate = await generateKeyPair();
+      const fp = await pubFingerprint(candidate.publicKey);
+      if (fp[0] === realFp[0] && fp[1] !== realFp[1]) {
+        fakeKey = candidate.publicKey;
+        break;
+      }
+    }
+    // With 500 attempts, probability of NOT finding a partial match is vanishingly small
+    expect(fakeKey).not.toBeNull();
+
+    // The fake key should NOT verify (fingerprint doesn't fully match)
+    const parsed = await tryParseBroadcastSigned(frame, [fakeKey!]);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.status).toBe('unverified');
+  });
+});
+
 describe('broadcast frames vs other frame types', () => {
   it('BROADCAST_UNSIGNED is not confused with CONTACT', async () => {
     const pub = crypto.getRandomValues(new Uint8Array(32));

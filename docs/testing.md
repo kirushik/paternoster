@@ -43,6 +43,7 @@ tests/
 │   ├── sign.test.ts          # XEdDSA sign/verify, Montgomery→Edwards, malformed signatures, degenerate keys (25)
 │   ├── broadcast.test.ts     # Broadcast frame serialize/parse, flags, verification states (16)
 │   ├── identity.test.ts      # Export/import roundtrip, wrong passphrase, corruption (6)
+│   ├── crypto.test.ts        # HKDF domain separation, directionByte edge cases, class isolation
 │   ├── detect.test.ts        # Frame classification pipeline: MSG/INTRO/broadcast/contact detection (17)
 │   ├── properties.test.ts    # Property-based tests: random-input roundtrips for all core invariants (21)
 │   └── types.test-d.ts       # Compile-time type tests (Theme, crypto, stego, compress types)
@@ -91,6 +92,10 @@ When adding new encoding or serialization logic, add a corresponding property te
 ## Mutation Testing
 
 Stryker (`npm run test:mutate`) mutates source code and reruns tests to find assertions that don't actually verify anything. Config is in `stryker.config.json`, targeting critical modules (crypto, stego, compress, wire, broadcast, utils, sign, smaz, squash). HTML report goes to `reports/mutation/` (gitignored). Run locally as needed — not in CI (too slow, ~10-15 min).
+
+Excluded from mutation: smaz codebook hex strings (data, not logic — 252 entries whose mutations don't break roundtrips) and stego model-64 encoder/decoder (dead code — no current theme uses model 64). These are excluded via line-range patterns in `stryker.config.json`.
+
+Surviving mutants in the initial run revealed several real assertion gaps: HKDF domain separation in crypto, broadcast tag guard conditions, compression mode selection, wire parsing negative cases, and boundary values in squash/utils. These have been addressed with targeted tests (`crypto.test.ts` and additions to existing test files).
 
 ## Frame Classification Tests
 

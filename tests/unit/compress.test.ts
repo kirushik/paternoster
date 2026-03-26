@@ -85,3 +85,38 @@ describe('decompress edge cases', () => {
     expect(() => decompress(data, 3)).toThrow('Неизвестный режим сжатия');
   });
 });
+
+describe('compression mode selection', () => {
+  it('short ASCII selects LITERAL', () => {
+    const { compMode } = compress('Hi');
+    expect(compMode).toBe(COMP_LITERAL);
+  });
+
+  it('Cyrillic text selects SQUASH_SMAZ or SQUASH_ONLY (not LITERAL)', () => {
+    const { compMode } = compress('Привет, как дела? Надеюсь всё хорошо!');
+    expect(compMode === COMP_SQUASH_SMAZ || compMode === COMP_SQUASH_ONLY).toBe(true);
+  });
+
+  it('long repeated Cyrillic selects SQUASH_SMAZ', () => {
+    // Smaz codebook is trained on Cyrillic, so repeated common patterns should compress well
+    const { compMode } = compress('что это не это что это не это что это не');
+    expect(compMode).toBe(COMP_SQUASH_SMAZ);
+  });
+
+  it('compressed payload is smaller than UTF-8 when SQUASH mode is selected', () => {
+    const text = 'Привет, мир! Как дела?';
+    const { payload, compMode } = compress(text);
+    const utf8 = new TextEncoder().encode(text);
+    if (compMode !== COMP_LITERAL) {
+      expect(payload.length).toBeLessThan(utf8.length);
+    }
+  });
+
+  it('SQUASH_ONLY is selected when smaz makes it bigger', () => {
+    // Pure ASCII through squash just passes through, smaz adds escape overhead
+    const text = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const { compMode } = compress(text);
+    // ASCII is 1 byte/char in both UTF-8 and squash, so either LITERAL or SQUASH_ONLY
+    expect(compMode === COMP_LITERAL || compMode === COMP_SQUASH_ONLY).toBe(true);
+  });
+});

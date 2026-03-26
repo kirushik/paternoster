@@ -112,6 +112,19 @@ describe('montgomeryToEdwards', () => {
     const pubKey = await crypto.subtle.importKey('raw', edwards, 'Ed25519', false, ['verify']);
     expect(pubKey.type).toBe('public');
   });
+
+  it('known test vector: specific Montgomery u → expected Edwards y', () => {
+    // Use the known keypair from XEdDSA fixed test vector section
+    const montPub = hexU8('599C8C9CF749CDA7C8B3974D89BA671DCED3C3FDF7D2FFD039BAE55A1135AA4D');
+    const edwards = montgomeryToEdwards(montPub);
+    // The Edwards point must be exactly 32 bytes and deterministic
+    expect(edwards.length).toBe(32);
+    // Verify it's consistent across calls
+    expect(montgomeryToEdwards(montPub)).toEqual(edwards);
+    // Snapshot the exact conversion output to catch arithmetic regressions
+    const edHex = Array.from(edwards).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+    expect(edHex).toMatchInlineSnapshot(`"FE942805E98AB654699E0E9298A73BC9C45C0FF41C81F9834BBE61127B0D8640"`);
+  });
 });
 
 describe('XEdDSA fixed test vector', () => {

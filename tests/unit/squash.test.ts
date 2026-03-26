@@ -73,3 +73,42 @@ describe('squash edge cases', () => {
     }
   });
 });
+
+describe('squash boundary values (mutation targets)', () => {
+  it('byte 0x80 (CP1251 Ђ / U+0402) roundtrips as single byte', () => {
+    const text = '\u0402'; // Ђ — first CP1251 high byte
+    const encoded = squashEncode(text);
+    expect(encoded.length).toBe(1);
+    expect(encoded[0]).toBe(0x80);
+    expect(squashDecode(encoded)).toBe(text);
+  });
+
+  it('byte 0x7F (DEL) roundtrips as ASCII', () => {
+    const text = '\x7F';
+    const encoded = squashEncode(text);
+    expect(encoded.length).toBe(1);
+    expect(encoded[0]).toBe(0x7F);
+    expect(squashDecode(encoded)).toBe(text);
+  });
+
+  it('2-byte UTF-8 (U+00A2 ¢) uses escape', () => {
+    const text = '¢';
+    const encoded = squashEncode(text);
+    expect(encoded[0]).toBe(0x98);
+    expect(squashDecode(encoded)).toBe(text);
+  });
+
+  it('3-byte UTF-8 (U+20BD ₽) uses escape', () => {
+    const text = '₽';
+    const encoded = squashEncode(text);
+    expect(encoded[0]).toBe(0x98);
+    expect(squashDecode(encoded)).toBe(text);
+  });
+
+  it('4-byte UTF-8 (U+1F600 😀) uses escape', () => {
+    const text = '😀';
+    const encoded = squashEncode(text);
+    expect(encoded[0]).toBe(0x98);
+    expect(squashDecode(encoded)).toBe(text);
+  });
+});
