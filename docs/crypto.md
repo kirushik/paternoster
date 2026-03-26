@@ -36,12 +36,13 @@ Headerless frames — every frame starts with random bytes for optimal steganogr
 | BROADCAST_SIGNED | `[flags:1][x25519_fp:2][compressed][xeddsa_sig:64]` | **67 bytes** |
 | BROADCAST_UNSIGNED | `[flags:1][compressed][check:2]` | **3 bytes** |
 
-**Frame type detection order:**
+**Frame type detection order (normative):** Implementations MUST try types in this exact sequence. Reordering changes false-accept behavior since earlier stages (AEAD trial decryption, 2^-64) reject far more strongly than later stages (checksum, 2^-16).
+
 1. Trial decryption as MSG (try each contact's key — 2^-64 false positive per key)
 2. Trial decryption as INTRO (first 32 bytes as ephemeral key — 2^-64 false positive)
 3. BROADCAST_SIGNED: flags byte discriminator `(byte[0] & 0x3F) == 0x02` + fingerprint lookup + XEdDSA signature verification via Web Crypto Ed25519
 4. CONTACT check byte validation (`bytes[32:34] == checkBytes(bytes[0:32])`)
-5. BROADCAST_UNSIGNED: flags byte discriminator `(byte[0] & 0x3F) == 0x03` + XOR-fold checksum
+5. BROADCAST_UNSIGNED: flags byte discriminator `(byte[0] & 0x3F) == 0x03` + SHA-256 truncated checksum
 
 AES-GCM's 64-bit tag gives 2^-64 false accept probability per trial decryption attempt — acceptable for manual copy-paste with no decryption oracle (see "64-bit GCM Tag" below).
 
@@ -101,21 +102,23 @@ wire = eph_pub || ciphertext || tag
 
 ### CONTACT Check Bytes
 
-XOR-fold with two different salts, placed at the END of the frame:
+Truncated SHA-256 with domain separation, placed at the END of the frame:
 
 ```
-a = 0x5A, b = 0xA5
-for each byte pub[i]: a ^= pub[i]; b ^= pub[i] ^ i
-CONTACT = [pub:32][a:1][b:1]
+hash = SHA-256(data || "paternoster-check-v2")
+check = hash[0:2]
+CONTACT = [pub:32][check[0]:1][check[1]:1]
 ```
 
-False positive rate: 1/65536 for random data.
+False positive rate: 1/65536 for random data. Check bytes provide corruption/typo detection, not cryptographic authenticity. CONTACT tokens are unauthenticated — trust is established via TOFU on first use.
 
 ### 64-bit GCM Tag
 
 We use `tagLength: 64` (8 bytes) instead of the default 128 (16 bytes). This saves 8 bytes per message vs the Web Crypto default.
 
 **Why this tradeoff is acceptable here:** 64-bit tags are weaker than the standard 128-bit choice. Single-forgery probability is 2^-64 per attempt. This is acceptable because message handling is manual (user copy-pastes stegotext), low-volume, and does not expose a decryption oracle — an attacker cannot submit automated forgery probes. NIST's deprecation of short tags targets high-throughput automated protocols (TLS, IPsec), not manual copy-paste messaging.
+
+**NIST constraints:** SP 800-38D Appendix C constrains 64-bit tags to max 2^22 bytes (4 MB) plaintext per invocation and max 2^11 (2048) invocations per key. Paternoster is well within both: stegotext messages are kilobytes, and manual copy-paste means dozens of messages per contact pair. NIST's upcoming SP 800-38D revision will remove support for tags shorter than 96 bits in new protocols; Paternoster's 64-bit tag is a deliberate size-first tradeoff for this specific manual, low-volume use case.
 
 ### Broadcast Frames
 
@@ -133,7 +136,7 @@ Bits 5-0: frame discriminator
 wire = [flags:1][compressed_message:N][check:2]
 check = contactCheckBytes(flags || compressed_message)
 ```
-3 bytes overhead. XOR-fold checksum (same algorithm as CONTACT). False positive: ~2^-22 (1/64 discriminator × 1/65536 checksum).
+3 bytes overhead. SHA-256 truncated checksum (same algorithm as CONTACT). False positive: ~2^-22 (1/64 discriminator × 1/65536 checksum).
 
 **BROADCAST_SIGNED:**
 ```

@@ -116,7 +116,7 @@ async function deriveKeyIV(
 }
 
 /**
- * Encrypt plaintext bytes. Returns [6-byte seed][ciphertext+96-bit tag].
+ * Encrypt plaintext bytes. Returns [6-byte seed][ciphertext+64-bit tag (8 bytes)].
  * Compression mode is stamped into seed[0] top 2 bits.
  * classByte is used as both HKDF info and AAD (not transmitted on wire).
  */
@@ -152,7 +152,7 @@ export async function encrypt(
 }
 
 /**
- * Decrypt ciphertext bytes. Input: [6-byte seed][ciphertext+96-bit tag].
+ * Decrypt ciphertext bytes. Input: [6-byte seed][ciphertext+64-bit tag (8 bytes)].
  * classByte is used as both HKDF info and AAD.
  */
 export async function decrypt(

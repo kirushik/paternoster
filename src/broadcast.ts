@@ -46,13 +46,13 @@ export async function pubFingerprint(x25519Pub: Uint8Array): Promise<Uint8Array>
 // ── Serialize ────────────────────────────────────────────
 
 /** Serialize unsigned broadcast: [flags:1][compressed:N][check:2]. 3 bytes overhead. */
-export function serializeBroadcastUnsigned(
+export async function serializeBroadcastUnsigned(
   compressed: Uint8Array,
   compMode: number,
-): Uint8Array {
+): Promise<Uint8Array> {
   const flags = packFlags(compMode, BROADCAST_UNSIGNED_TAG);
   const body = concatU8(new Uint8Array([flags]), compressed);
-  const [a, b] = contactCheckBytes(body);
+  const [a, b] = await contactCheckBytes(body);
   return concatU8(body, new Uint8Array([a, b]));
 }
 
@@ -95,11 +95,11 @@ const MIN_UNSIGNED_SIZE = 4;  // flags(1) + compressed(1) + check(2)
 const MIN_SIGNED_SIZE = 67;   // flags(1) + fp(2) + compressed(0) + sig(64)
 
 /** Try to parse as BROADCAST_UNSIGNED. */
-export function tryParseBroadcastUnsigned(data: Uint8Array): BroadcastUnsigned | null {
+export async function tryParseBroadcastUnsigned(data: Uint8Array): Promise<BroadcastUnsigned | null> {
   if (data.length < MIN_UNSIGNED_SIZE) return null;
   if (flagsTag(data[0]) !== BROADCAST_UNSIGNED_TAG) return null;
   const body = data.slice(0, data.length - 2);
-  const [a, b] = contactCheckBytes(body);
+  const [a, b] = await contactCheckBytes(body);
   if (data[data.length - 2] !== a || data[data.length - 1] !== b) return null;
   return { compMode: flagsCompMode(data[0]), compressed: body.slice(1) };
 }

@@ -14,11 +14,11 @@ const ALL_THEMES = THEMES.map(t => t.id);
 
 async function unsignedRoundtrip(plaintext: string, themeId: ThemeId): Promise<string> {
   const { payload: compressed, compMode } = compress(plaintext);
-  const frame = serializeBroadcastUnsigned(compressed, compMode);
+  const frame = await serializeBroadcastUnsigned(compressed, compMode);
   const stegoText = stegoEncode(frame, themeId);
   const decoded = stegoDecode(stegoText);
   expect(decoded).not.toBeNull();
-  const parsed = tryParseBroadcastUnsigned(decoded!.bytes);
+  const parsed = await tryParseBroadcastUnsigned(decoded!.bytes);
   expect(parsed).not.toBeNull();
   return decompress(parsed!.compressed, parsed!.compMode);
 }
@@ -78,12 +78,12 @@ describe('broadcast frames are not confused with P2P frames', () => {
     const sender = await generateKeyPair();
     const { payload, compMode } = compress('test');
     const frame = await serializeBroadcastSigned(payload, compMode, sender.publicKey, sender.privateKey);
-    expect(tryParseBroadcastUnsigned(frame)).toBeNull();
+    expect(await tryParseBroadcastUnsigned(frame)).toBeNull();
   });
 
   it('unsigned broadcast is not detected as signed', async () => {
     const { payload, compMode } = compress('test');
-    const frame = serializeBroadcastUnsigned(payload, compMode);
+    const frame = await serializeBroadcastUnsigned(payload, compMode);
     expect(await tryParseBroadcastSigned(frame)).toBeNull();
   });
 });

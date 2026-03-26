@@ -24,6 +24,7 @@ import { speak, stopSpeaking, isSpeaking, hasVoiceForLang, onVoicesChanged } fro
 import { exportIdentity, importIdentity } from './identity';
 import { loadChat, addChatMessage, clearChat, randomChatId } from './chat';
 import { tryParseBroadcastSigned, tryParseBroadcastUnsigned, serializeBroadcastSigned, serializeBroadcastUnsigned } from './broadcast';
+import { checkEd25519Support } from './sign';
 import { MAX_STEGO_CHARS } from './constants';
 
 // ── State ───────────────────────────────────────────────
@@ -36,6 +37,7 @@ let selectedTheme: ThemeId = 'БОЖЕ';
 let lastDecodedSender: string | null = null;
 let broadcastMode = false;
 let broadcastSigned = false;
+let ed25519Supported = false;
 let copyableText = '';
 let copyLabel = '📋 Скопировать';
 let ttsText = '';
@@ -71,6 +73,8 @@ async function init(): Promise<void> {
     return;
   }
 
+  ed25519Supported = await checkEd25519Support();
+
   await loadOrCreateIdentity();
   contacts = loadContacts();
   selectedContactId = getSelectedContactId();
@@ -99,7 +103,7 @@ async function checkHashInvite(): Promise<void> {
   const hash = location.hash.slice(1); // remove '#'
   if (!hash) return;
 
-  const key = tryParseInviteToken(hash);
+  const key = await tryParseInviteToken(hash);
   if (!key) return;
 
   // Clear hash so it doesn't trigger again on reload
@@ -157,7 +161,7 @@ function showDialog(config: {
   message?: string;
   fields?: DialogField[];
   confirmLabel: string;
-  validate?: (values: Record<string, string>) => string | null;
+  validate?: (values: Record<string, string>) => string | null | Promise<string | null>;
 }): Promise<Record<string, string> | null> {
   return new Promise(resolve => {
     let resolved = false;
@@ -244,10 +248,10 @@ function showDialog(config: {
       return values;
     };
 
-    confirmBtn.addEventListener('click', () => {
+    confirmBtn.addEventListener('click', async () => {
       const values = collectValues();
       if (config.validate) {
-        const error = config.validate(values);
+        const error = await config.validate(values);
         if (error) {
           errorDiv.textContent = error;
           return;
@@ -290,8 +294,8 @@ function render(): void {
       <div class="output-actions" id="output-actions">
         <select id="theme-select" title="Словарь"></select>
         ${broadcastMode ? `
-        <label class="broadcast-sign-check" id="broadcast-sign-label">
-          <input type="checkbox" id="broadcast-sign-toggle"${broadcastSigned ? ' checked' : ''}>
+        <label class="broadcast-sign-check" id="broadcast-sign-label"${!ed25519Supported ? ' title="Подпись недоступна в этом браузере"' : ''}>
+          <input type="checkbox" id="broadcast-sign-toggle"${broadcastSigned ? ' checked' : ''}${!ed25519Supported ? ' disabled' : ''}>
           Подписанное
         </label>` : ''}
         <button id="copy-btn" class="action-btn" title="Скопировать">📋 Скопировать</button>
@@ -483,8 +487,9 @@ function flashChatMessage(msgId: string): void {
   bubble.addEventListener('animationend', () => bubble.classList.remove('flash'), { once: true });
 }
 
-function setOutputLabel(text: string): void {
+function setOutputLabel(text: string, warning = false): void {
   outputLabelEl.textContent = text;
+  outputLabelEl.classList.toggle('sig-warning', warning);
 }
 
 function setCopyableText(text: string, label: string): void {
@@ -550,7 +555,7 @@ function wireEvents(): void {
   // TTS: check voice availability on init
   updateTtsAvailability();
 
-  contactsEl.addEventListener('click', (e) => {
+  contactsEl.addEventListener('click', async (e) => {
     // Check if × delete button was clicked
     const deleteEl = (e.target as HTMLElement).closest('.contact-delete') as HTMLElement | null;
     if (deleteEl) {
@@ -566,7 +571,7 @@ function wireEvents(): void {
     if (id === 'self') {
       selectedContactId = null;
       setSelectedContactId('');
-      showOwnContactToken();
+      await showOwnContactToken();
     } else if (id === 'add') {
       handleAddContact();
     } else {
@@ -633,7 +638,7 @@ async function processInput(): Promise<void> {
   // Broadcast mode: try to decode first, fall through to encode
   if (broadcastMode) {
     // Try invite token — auto-switch to regular mode
-    const inviteKey = tryParseInviteToken(text);
+    const inviteKey = await tryParseInviteToken(text);
     if (inviteKey) {
       exitBroadcastMode();
       await handleContactToken(inviteKey);
@@ -653,7 +658,7 @@ async function processInput(): Promise<void> {
   }
 
   // Try base64url invite token first (compact format: 44 chars)
-  const inviteContact = tryParseInviteToken(text);
+  const inviteContact = await tryParseInviteToken(text);
   if (inviteContact) {
     await handleContactToken(inviteContact);
     return;
@@ -722,14 +727,14 @@ async function handleBroadcastEncode(plaintext: string): Promise<void> {
     const { payload: compressed, compMode } = compress(plaintext);
     let wireFrame: Uint8Array;
 
-    if (broadcastSigned) {
+    if (broadcastSigned && ed25519Supported) {
       wireFrame = await serializeBroadcastSigned(
         compressed, compMode,
         myPublicKey, myPrivateKey,
       );
       setOutputLabel('Подписанная публикация');
     } else {
-      wireFrame = serializeBroadcastUnsigned(compressed, compMode);
+      wireFrame = await serializeBroadcastUnsigned(compressed, compMode);
       setOutputLabel('Публикация без подписи');
     }
 
@@ -776,7 +781,7 @@ async function handleBroadcastModeDecode(bytes: Uint8Array, _theme: ThemeId): Pr
   }
 
   // 2. Try as unsigned broadcast — stay in broadcast mode
-  const unsigned = tryParseBroadcastUnsigned(bytes);
+  const unsigned = await tryParseBroadcastUnsigned(bytes);
   if (unsigned) {
     try {
       const plaintext = decompress(unsigned.compressed, unsigned.compMode);
@@ -827,7 +832,7 @@ async function handleBroadcastModeDecode(bytes: Uint8Array, _theme: ThemeId): Pr
   }
 
   // 5. Try as CONTACT — auto-switch to regular mode
-  const contactPub = tryParseContact(bytes);
+  const contactPub = await tryParseContact(bytes);
   if (contactPub) {
     exitBroadcastMode();
     await handleContactToken(contactPub);
@@ -972,14 +977,14 @@ async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
   }
 
   // 4. Try as CONTACT: pub = bytes[0:32], check = bytes[32]
-  const contactPub = tryParseContact(bytes);
+  const contactPub = await tryParseContact(bytes);
   if (contactPub) {
     await handleContactToken(contactPub);
     return;
   }
 
   // 5. Try as BROADCAST_UNSIGNED
-  const unsigned = tryParseBroadcastUnsigned(bytes);
+  const unsigned = await tryParseBroadcastUnsigned(bytes);
   if (unsigned) {
     try {
       const plaintext = decompress(unsigned.compressed, unsigned.compMode);
@@ -1043,7 +1048,7 @@ async function handleDecodedBroadcast(
     ttsText = '';
   } else if (result.status === 'failed') {
     lastDecodedSender = null;
-    setOutputLabel(`Публикация · подпись не прошла проверку (код ${fpHex})`);
+    setOutputLabel(`Публикация · подпись не прошла проверку (код ${fpHex})`, true);
     setCopyableText(plaintext, 'Скопировать текст');
   } else {
     // unverified — unknown sender, no matching fingerprint
@@ -1168,7 +1173,7 @@ async function handleContactToken(publicKey: Uint8Array): Promise<void> {
 }
 
 /** Try to parse a base64url invite token. Returns the 32-byte public key or null. */
-function tryParseInviteToken(text: string): Uint8Array | null {
+async function tryParseInviteToken(text: string): Promise<Uint8Array | null> {
   // Invite token format: base64url of [0x20][32-byte public key] = 33 bytes = 44 base64url chars
   // Also accept just the raw base64url of the 32-byte key (43 chars)
   // Also accept full URLs with hash fragment: https://any-domain.com/path#TOKEN
@@ -1183,7 +1188,7 @@ function tryParseInviteToken(text: string): Uint8Array | null {
     const decoded = base64urlToU8(clean);
     if (decoded.length === 34) {
       const pub = decoded.slice(0, 32);
-      const [a, b] = contactCheckBytes(pub);
+      const [a, b] = await contactCheckBytes(pub);
       if (decoded[32] === a && decoded[33] === b) return pub;
     }
     if (decoded.length === 32) {
@@ -1196,21 +1201,21 @@ function tryParseInviteToken(text: string): Uint8Array | null {
 }
 
 /** Generate a compact base64url invite token for sharing. */
-function makeInviteToken(publicKey: Uint8Array): string {
-  const wire = serializeContact(publicKey);
+async function makeInviteToken(publicKey: Uint8Array): Promise<string> {
+  const wire = await serializeContact(publicKey);
   return u8toBase64url(wire);
 }
 
-function makeInviteLink(publicKey: Uint8Array): string {
-  const token = makeInviteToken(publicKey);
+async function makeInviteLink(publicKey: Uint8Array): Promise<string> {
+  const token = await makeInviteToken(publicKey);
   const base = location.origin + location.pathname;
   return base + '#' + token;
 }
 
-function showOwnContactToken(): void {
-  const inviteLink = makeInviteLink(myPublicKey);
-  const inviteToken = makeInviteToken(myPublicKey);
-  const tokenBytes = serializeContact(myPublicKey);
+async function showOwnContactToken(): Promise<void> {
+  const inviteLink = await makeInviteLink(myPublicKey);
+  const inviteToken = await makeInviteToken(myPublicKey);
+  const tokenBytes = await serializeContact(myPublicKey);
   const stegoText = stegoEncode(tokenBytes, selectedTheme);
 
   outputEl.textContent = '';
@@ -1314,12 +1319,12 @@ async function handleAddContact(): Promise<void> {
       { name: 'name', type: 'text', placeholder: 'Имя контакта' },
     ],
     confirmLabel: 'Добавить',
-    validate: (values) => {
+    validate: async (values) => {
       if (!values.token.trim()) return 'Вставьте приглашение или ключ';
       if (!values.name.trim()) return 'Введите имя контакта';
 
       const clean = values.token.trim();
-      parsedKey = tryParseInviteToken(clean);
+      parsedKey = await tryParseInviteToken(clean);
       if (!parsedKey) {
         const hexClean = clean.replace(/\s/g, '').toUpperCase();
         if (/^[0-9A-F]{64}$/.test(hexClean)) {

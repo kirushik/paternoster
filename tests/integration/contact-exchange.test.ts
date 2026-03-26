@@ -10,11 +10,11 @@ describe('contact token exchange via stego', () => {
   for (const themeId of themes) {
     it(`contact token roundtrips through ${themeId}`, async () => {
       const { publicKey } = await generateKeyPair();
-      const wire = serializeContact(publicKey);
+      const wire = await serializeContact(publicKey);
       const stegoText = stegoEncode(wire, themeId);
       const decoded = stegoDecode(stegoText);
       expect(decoded).not.toBeNull();
-      const parsed = tryParseContact(decoded!.bytes);
+      const parsed = await tryParseContact(decoded!.bytes);
       expect(parsed).not.toBeNull();
       expect(parsed).toEqual(publicKey);
     });
@@ -24,10 +24,10 @@ describe('contact token exchange via stego', () => {
 describe('contact token structure', () => {
   it('wire format is 34 bytes (32-byte key + 2 check bytes)', async () => {
     const { publicKey } = await generateKeyPair();
-    const wire = serializeContact(publicKey);
+    const wire = await serializeContact(publicKey);
     expect(wire.length).toBe(34);
     expect(wire.slice(0, 32)).toEqual(publicKey);
-    const [a, b] = contactCheckBytes(publicKey);
+    const [a, b] = await contactCheckBytes(publicKey);
     expect(wire[32]).toBe(a);
     expect(wire[33]).toBe(b);
   });

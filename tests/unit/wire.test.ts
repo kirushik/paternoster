@@ -25,57 +25,57 @@ describe('INTRO serialization', () => {
 });
 
 describe('CONTACT serialization', () => {
-  it('is pub + 2 check bytes at the end', () => {
+  it('is pub + 2 check bytes at the end', async () => {
     const pub = crypto.getRandomValues(new Uint8Array(32));
-    const wire = serializeContact(pub);
+    const wire = await serializeContact(pub);
     expect(wire.length).toBe(34); // 32 pub + 2 check
     expect(wire.slice(0, 32)).toEqual(pub);
-    const [a, b] = contactCheckBytes(pub);
+    const [a, b] = await contactCheckBytes(pub);
     expect(wire[32]).toBe(a);
     expect(wire[33]).toBe(b);
   });
 });
 
 describe('CONTACT check bytes', () => {
-  it('are deterministic', () => {
+  it('are deterministic', async () => {
     const pub = crypto.getRandomValues(new Uint8Array(32));
-    expect(contactCheckBytes(pub)).toEqual(contactCheckBytes(pub));
+    expect(await contactCheckBytes(pub)).toEqual(await contactCheckBytes(pub));
   });
 
-  it('differ for different keys', () => {
+  it('differ for different keys', async () => {
     const pub1 = crypto.getRandomValues(new Uint8Array(32));
     const pub2 = crypto.getRandomValues(new Uint8Array(32));
     // Overwhelming probability of different check bytes
-    const [a1, b1] = contactCheckBytes(pub1);
-    const [a2, b2] = contactCheckBytes(pub2);
+    const [a1, b1] = await contactCheckBytes(pub1);
+    const [a2, b2] = await contactCheckBytes(pub2);
     expect(a1 !== a2 || b1 !== b2).toBe(true);
   });
 
-  it('are not both zero for all-zero key', () => {
+  it('are not both zero for all-zero key', async () => {
     const pub = new Uint8Array(32);
-    const [a, b] = contactCheckBytes(pub);
+    const [a, b] = await contactCheckBytes(pub);
     expect(a !== 0 || b !== 0).toBe(true);
   });
 });
 
 describe('tryParseContact', () => {
-  it('parses valid contact token', () => {
+  it('parses valid contact token', async () => {
     const pub = crypto.getRandomValues(new Uint8Array(32));
-    const wire = serializeContact(pub);
-    expect(tryParseContact(wire)).toEqual(pub);
+    const wire = await serializeContact(pub);
+    expect(await tryParseContact(wire)).toEqual(pub);
   });
 
-  it('rejects wrong length', () => {
-    expect(tryParseContact(new Uint8Array(32))).toBeNull();
-    expect(tryParseContact(new Uint8Array(33))).toBeNull();
-    expect(tryParseContact(new Uint8Array(35))).toBeNull();
+  it('rejects wrong length', async () => {
+    expect(await tryParseContact(new Uint8Array(32))).toBeNull();
+    expect(await tryParseContact(new Uint8Array(33))).toBeNull();
+    expect(await tryParseContact(new Uint8Array(35))).toBeNull();
   });
 
-  it('rejects wrong check bytes', () => {
+  it('rejects wrong check bytes', async () => {
     const pub = crypto.getRandomValues(new Uint8Array(32));
-    const wire = serializeContact(pub);
+    const wire = await serializeContact(pub);
     wire[32] ^= 0xFF;
-    expect(tryParseContact(wire)).toBeNull();
+    expect(await tryParseContact(wire)).toBeNull();
   });
 });
 
