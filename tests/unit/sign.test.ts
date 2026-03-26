@@ -134,6 +134,50 @@ describe('XEdDSA fixed test vector', () => {
   });
 });
 
+describe('malformed signatures', () => {
+  it('empty signature returns false', async () => {
+    const kp = await generateKeyPair();
+    const data = new TextEncoder().encode('test');
+    expect(await xeddsaVerify(kp.publicKey, new Uint8Array(0), data)).toBe(false);
+  });
+
+  it('too-short signature (32 bytes) returns false', async () => {
+    const kp = await generateKeyPair();
+    const data = new TextEncoder().encode('test');
+    expect(await xeddsaVerify(kp.publicKey, new Uint8Array(32), data)).toBe(false);
+  });
+
+  it('almost-right signature (63 bytes) returns false', async () => {
+    const kp = await generateKeyPair();
+    const data = new TextEncoder().encode('test');
+    expect(await xeddsaVerify(kp.publicKey, new Uint8Array(63), data)).toBe(false);
+  });
+
+  it('too-long signature (65 bytes) returns false', async () => {
+    const kp = await generateKeyPair();
+    const data = new TextEncoder().encode('test');
+    expect(await xeddsaVerify(kp.publicKey, new Uint8Array(65), data)).toBe(false);
+  });
+
+  it('oversized signature (128 bytes) returns false', async () => {
+    const kp = await generateKeyPair();
+    const data = new TextEncoder().encode('test');
+    expect(await xeddsaVerify(kp.publicKey, new Uint8Array(128), data)).toBe(false);
+  });
+
+  it('all-zero 64-byte signature returns false', async () => {
+    const kp = await generateKeyPair();
+    const data = new TextEncoder().encode('test');
+    expect(await xeddsaVerify(kp.publicKey, new Uint8Array(64).fill(0x00), data)).toBe(false);
+  });
+
+  it('all-0xFF 64-byte signature returns false', async () => {
+    const kp = await generateKeyPair();
+    const data = new TextEncoder().encode('test');
+    expect(await xeddsaVerify(kp.publicKey, new Uint8Array(64).fill(0xFF), data)).toBe(false);
+  });
+});
+
 describe('montgomeryToEdwards edge cases (degenerate inputs)', () => {
   // Torsion points — not reachable by honest X25519 key generation, but a malicious
   // CONTACT frame could contain them. Must fail gracefully, not crash.

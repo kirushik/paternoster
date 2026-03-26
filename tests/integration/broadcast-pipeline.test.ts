@@ -73,6 +73,24 @@ describe('broadcast signed pipeline (XEdDSA, 67-byte overhead)', () => {
   });
 });
 
+describe('empty plaintext broadcast', () => {
+  it('empty compressed payload in unsigned broadcast is rejected (below MIN_UNSIGNED_SIZE)', async () => {
+    const { payload, compMode } = compress('');
+    expect(payload.length).toBe(0);
+    const frame = await serializeBroadcastUnsigned(payload, compMode);
+    // Frame is flags(1) + compressed(0) + check(2) = 3 bytes, below MIN_UNSIGNED_SIZE(4)
+    expect(frame.length).toBe(3);
+    const parsed = await tryParseBroadcastUnsigned(frame);
+    expect(parsed).toBeNull();
+  });
+
+  it('empty string roundtrips through signed broadcast', async () => {
+    const { result, verified } = await signedRoundtrip('', 'hex');
+    expect(result).toBe('');
+    expect(verified).toBe(true);
+  });
+});
+
 describe('broadcast frames are not confused with P2P frames', () => {
   it('signed broadcast is not detected as unsigned', async () => {
     const sender = await generateKeyPair();

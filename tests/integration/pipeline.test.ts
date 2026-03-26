@@ -63,6 +63,16 @@ describe('full pipeline roundtrip', () => {
   }
 });
 
+describe('empty plaintext', () => {
+  it('empty string roundtrips through MSG pipeline', async () => {
+    expect(await fullRoundtrip('', 'hex', false)).toBe('');
+  });
+
+  it('empty string roundtrips through INTRO pipeline', async () => {
+    expect(await fullRoundtrip('', 'hex', true)).toBe('');
+  });
+});
+
 describe('pipeline with various message types', () => {
   it('short Russian message', async () => {
     expect(await fullRoundtrip('Да', 'БОЖЕ', false)).toBe('Да');

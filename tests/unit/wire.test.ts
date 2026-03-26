@@ -109,3 +109,70 @@ describe('compression mode constants', () => {
     expect(COMP_SQUASH_ONLY).toBe(2);
   });
 });
+
+describe('wire format snapshots (protocol stability)', () => {
+  it('MSG frame is identity (no envelope)', () => {
+    const payload = new Uint8Array([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F]);
+    const wire = serializeMsg(payload);
+    expect(Array.from(wire)).toMatchInlineSnapshot(`
+      [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+      ]
+    `);
+  });
+
+  it('INTRO frame layout: 32-byte eph_pub prefix', () => {
+    const ephKey = new Uint8Array(32).fill(0xAA);
+    const payload = new Uint8Array([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09]);
+    const wire = serializeIntro(ephKey, payload);
+    expect(wire.length).toMatchInlineSnapshot(`41`);
+    expect(Array.from(wire.slice(0, 4))).toMatchInlineSnapshot(`
+      [
+        170,
+        170,
+        170,
+        170,
+      ]
+    `);
+    expect(Array.from(wire.slice(32))).toMatchInlineSnapshot(`
+      [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+      ]
+    `);
+  });
+
+  it('CONTACT frame layout: 32-byte pub + 2 check bytes', async () => {
+    const pub = new Uint8Array(32).fill(0x42);
+    const wire = await serializeContact(pub);
+    expect(wire.length).toMatchInlineSnapshot(`34`);
+    // Check bytes are deterministic for a given key
+    expect(Array.from(wire.slice(32))).toMatchInlineSnapshot(`
+      [
+        175,
+        57,
+      ]
+    `);
+  });
+});
