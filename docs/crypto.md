@@ -41,7 +41,7 @@ Headerless frames — every frame starts with random bytes for optimal steganogr
 1. Trial decryption as MSG (try each contact's key — 2^-64 false positive per key)
 2. Trial decryption as INTRO (first 32 bytes as ephemeral key — 2^-64 false positive)
 3. BROADCAST_SIGNED: flags byte discriminator `(byte[0] & 0x3F) == 0x02` + fingerprint lookup + XEdDSA signature verification via Web Crypto Ed25519
-4. CONTACT check byte validation (`bytes[32:34] == checkBytes(bytes[0:32])`)
+4. CONTACT check bytes validation (`bytes[32:34] == SHA256(bytes[0:32] || domain)[0:2]`)
 5. BROADCAST_UNSIGNED: flags byte discriminator `(byte[0] & 0x3F) == 0x03` + SHA-256 truncated checksum
 
 AES-GCM's 64-bit tag gives 2^-64 false accept probability per trial decryption attempt — acceptable for manual copy-paste with no decryption oracle (see "64-bit GCM Tag" below).

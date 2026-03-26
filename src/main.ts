@@ -657,7 +657,7 @@ async function processInput(): Promise<void> {
     return;
   }
 
-  // Try base64url invite token first (compact format: 44 chars)
+  // Try base64url invite token first (46-char checked or 43-char raw)
   const inviteContact = await tryParseInviteToken(text);
   if (inviteContact) {
     await handleContactToken(inviteContact);
@@ -1099,11 +1099,10 @@ async function handleSavePendingContact(): Promise<void> {
   if (!result) return;
 
   const name = result.name.trim();
-  addContact(name, pendingNewContact.senderKey);
+  const newContact = addContact(name, pendingNewContact.senderKey);
   contacts = loadContacts();
 
   // Switch to the new contact's chat and commit the first message
-  const newContact = contacts[contacts.length - 1];
   selectedContactId = newContact.id;
   setSelectedContactId(selectedContactId);
 
@@ -1174,7 +1173,7 @@ async function handleContactToken(publicKey: Uint8Array): Promise<void> {
 
 /** Try to parse a base64url invite token. Returns the 32-byte public key or null. */
 async function tryParseInviteToken(text: string): Promise<Uint8Array | null> {
-  // Invite token format: base64url of [0x20][32-byte public key] = 33 bytes = 44 base64url chars
+  // Invite token format: base64url of [32-byte public key][2 check bytes] = 34 bytes = 46 base64url chars
   // Also accept just the raw base64url of the 32-byte key (43 chars)
   // Also accept full URLs with hash fragment: https://any-domain.com/path#TOKEN
   let clean = text.replace(/\s/g, '');
