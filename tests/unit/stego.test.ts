@@ -105,20 +105,139 @@ describe('stego FE0F robustness', () => {
   });
 });
 
+describe('large payload roundtrip (safety counter regression)', () => {
+  const model16Themes: ThemeId[] = ['РОССИЯ', 'СССР', 'БУХАЮ'];
+
+  for (const themeId of model16Themes) {
+    it(`roundtrips 6000 random bytes through ${themeId} (model-16)`, () => {
+      const input = randomBytes(6000);
+      const encoded = stegoEncode(input, themeId);
+      const decoded = stegoDecode(encoded);
+      expect(decoded).not.toBeNull();
+      expect(decoded!.bytes).toEqual(input);
+    });
+  }
+
+  it('roundtrips 6000 random bytes through all themes', () => {
+    const allThemes: ThemeId[] = ['БОЖЕ', 'РОССИЯ', 'СССР', 'БУХАЮ', 'КИТАЙ', 'PATER', '🙂', 'hex'];
+    const input = randomBytes(6000);
+    for (const themeId of allThemes) {
+      const encoded = stegoEncode(input, themeId);
+      const decoded = stegoDecode(encoded);
+      expect(decoded).not.toBeNull();
+      expect(decoded!.bytes).toEqual(input);
+    }
+  });
+
+  for (const themeId of model16Themes) {
+    it(`auto-detects theme correctly for large payload in ${themeId}`, () => {
+      const input = randomBytes(6000);
+      const encoded = stegoEncode(input, themeId);
+      const decoded = stegoDecode(encoded);
+      expect(decoded).not.toBeNull();
+      expect(decoded!.theme).toBe(themeId);
+    });
+  }
+});
+
+describe('model-16 boundary and stress tests', () => {
+  const model16Themes: ThemeId[] = ['РОССИЯ', 'СССР', 'БУХАЮ'];
+
+  // Old safety counter was 10000 iterations = 5000 bytes. Test boundaries.
+  for (const themeId of model16Themes) {
+    it(`roundtrips exactly 4999 bytes through ${themeId}`, () => {
+      const input = randomBytes(4999);
+      const encoded = stegoEncode(input, themeId);
+      const decoded = stegoDecode(encoded);
+      expect(decoded).not.toBeNull();
+      expect(decoded!.bytes).toEqual(input);
+    });
+
+    it(`roundtrips exactly 5000 bytes through ${themeId}`, () => {
+      const input = randomBytes(5000);
+      const encoded = stegoEncode(input, themeId);
+      const decoded = stegoDecode(encoded);
+      expect(decoded).not.toBeNull();
+      expect(decoded!.bytes).toEqual(input);
+    });
+
+    it(`roundtrips exactly 5001 bytes through ${themeId}`, () => {
+      const input = randomBytes(5001);
+      const encoded = stegoEncode(input, themeId);
+      const decoded = stegoDecode(encoded);
+      expect(decoded).not.toBeNull();
+      expect(decoded!.bytes).toEqual(input);
+    });
+  }
+
+  for (const themeId of model16Themes) {
+    it(`roundtrips 10000 bytes through ${themeId}`, () => {
+      const input = randomBytes(10000);
+      const encoded = stegoEncode(input, themeId);
+      const decoded = stegoDecode(encoded);
+      expect(decoded).not.toBeNull();
+      expect(decoded!.bytes).toEqual(input);
+    });
+
+    it(`roundtrips 20000 bytes through ${themeId}`, () => {
+      const input = randomBytes(20000);
+      const encoded = stegoEncode(input, themeId);
+      const decoded = stegoDecode(encoded);
+      expect(decoded).not.toBeNull();
+      expect(decoded!.bytes).toEqual(input);
+    });
+  }
+});
+
+describe('truncated large encoded text', () => {
+  const model16Themes: ThemeId[] = ['РОССИЯ', 'СССР', 'БУХАЮ'];
+
+  for (const themeId of model16Themes) {
+    it(`truncated large ${themeId} message does not crash`, () => {
+      const input = randomBytes(6000);
+      const encoded = stegoEncode(input, themeId);
+      // Truncate at various points
+      for (const fraction of [0.25, 0.5, 0.75]) {
+        const truncated = encoded.substring(0, Math.floor(encoded.length * fraction));
+        expect(() => stegoDecode(truncated)).not.toThrow();
+      }
+    });
+  }
+});
+
+describe('malformed input does not hang', () => {
+  it('long random ASCII string returns null promptly', () => {
+    const garbage = 'abcdefghijklmnopqrstuvwxyz '.repeat(1000);
+    const start = performance.now();
+    const result = stegoDecode(garbage);
+    const elapsed = performance.now() - start;
+    expect(result).toBeNull();
+    expect(elapsed).toBeLessThan(1000); // must complete within 1 second
+  });
+
+  it('long random Cyrillic string returns null promptly', () => {
+    const garbage = 'Это просто обычный русский текст без всякого смысла. '.repeat(200);
+    const start = performance.now();
+    const result = stegoDecode(garbage);
+    const elapsed = performance.now() - start;
+    expect(result).toBeNull();
+    expect(elapsed).toBeLessThan(1000);
+  });
+});
+
 describe('stego handles edge cases', () => {
   it('empty input encodes to empty or padding-only', () => {
     // hex produces empty string
     const hex = stegoEncode(new Uint8Array([]), 'hex');
     expect(hex).toBe('');
 
-    // model-4096/1024 themes produce padding tokens (roundtrip to empty)
+    // model-4096/1024 themes produce padding tokens that must roundtrip to empty
     for (const themeId of ['БОЖЕ', 'КИТАЙ', '🙂'] as const) {
       const encoded = stegoEncode(new Uint8Array([]), themeId);
       expect(encoded.length).toBeGreaterThan(0);
       const decoded = stegoDecode(encoded);
-      if (decoded !== null) {
-        expect(decoded.bytes).toEqual(new Uint8Array([]));
-      }
+      expect(decoded).not.toBeNull();
+      expect(decoded!.bytes).toEqual(new Uint8Array([]));
     }
   });
 

@@ -31,17 +31,18 @@ tests/
 │   ├── smaz.test.ts          # Codebook compression, bounds checking (18)
 │   ├── compress.test.ts      # Dispatch, flag selection, size reduction, unknown flags (11)
 │   ├── wire.test.ts          # Serialize/deserialize all frame types, strict lengths (12)
-│   ├── stego.test.ts         # All models × all byte values, auto-detect, edge cases (39)
+│   ├── stego.test.ts         # All models × all byte values, auto-detect, large payloads, edge cases (59)
 │   ├── dictionaries.test.ts  # Table sizes, uniqueness, prefix-free (30)
 │   ├── contacts.test.ts      # CRUD with localStorage mock, schema validation (17)
 │   ├── sign.test.ts          # XEdDSA sign/verify, Montgomery→Edwards conversion, edge cases
 │   ├── broadcast.test.ts     # Broadcast frame serialize/parse, flags, verification states
 │   └── identity.test.ts      # Export/import roundtrip, wrong passphrase, corruption (5)
 ├── integration/
-│   ├── pipeline.test.ts      # Full encrypt→stego→decrypt roundtrip per theme (24)
+│   ├── pipeline.test.ts      # Full encrypt→stego→decrypt roundtrip per theme, including large messages (40)
 │   ├── broadcast-pipeline.test.ts  # Full broadcast roundtrip per theme, signed+unsigned (21)
 │   ├── contact-exchange.test.ts  # Contact token through stego roundtrip (9)
-│   └── invite.test.ts        # Base64url token generate/parse (8)
+│   ├── invite.test.ts        # Base64url token generate/parse (8)
+│   └── stego-benchmark.test.ts  # Transport limit verification (10)
 └── e2e/
     ├── helpers.ts            # Shared helpers: fillDialogAndConfirm, sendMessage, receiveFromKnown
     ├── basic.spec.ts         # Page load, key persistence, encode, copy, download (6)
@@ -49,6 +50,7 @@ tests/
     ├── conversation.spec.ts  # Full multi-round conversation with key exchange confirmation (1)
     ├── crypto-roundtrip.spec.ts  # Alice↔Bob single message exchange (1)
     ├── theme-roundtrip.spec.ts   # Per-theme encode→decode roundtrip, all 8 themes (8)
+    ├── large-message.spec.ts  # Large message conversation roundtrip (1)
     ├── broadcast.spec.ts     # Broadcast mode UX (banner, warm background, auto-detect), signed/unsigned, verification, dedup (12)
     └── tts.spec.ts           # Button behavior, language per theme (5)
 ```
@@ -64,6 +66,17 @@ tests/
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs two parallel jobs: unit tests and E2E tests. Playwright browsers are cached by version. Test reports are uploaded as artifacts on failure. See the workflow file for details.
+
+## Large Message Testing
+
+Large payload tests exist at three levels to prevent regressions like the decoder16 safety counter bug (which silently truncated payloads >5000 bytes):
+
+- **Unit (`stego.test.ts`)**: 6000-byte, 10K, 20K payloads through all Model 16 themes; boundary tests at 4999/5000/5001 bytes; truncation and malformed input tests
+- **Integration (`pipeline.test.ts`)**: ~5800-char Russian text through all 8 themes × {MSG, INTRO} = 16 combinations
+- **Integration (`stego-benchmark.test.ts`)**: Expansion ratio assertions per theme; verifies transport limit thresholds
+- **E2E (`large-message.spec.ts`)**: Full Alice↔Bob conversation with ~2300-char messages through key exchange and MSG_STANDARD
+
+When adding themes or changing the encoding pipeline, ensure large payload tests still pass — they catch size-dependent bugs that small-payload roundtrip tests miss.
 
 ## Gotchas
 

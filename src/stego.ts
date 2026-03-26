@@ -59,7 +59,8 @@ function decoder16(s: string, tab: Theme): Uint8Array | null {
   const t2 = normalizeTab(tab.tab2) ?? t1;
   const nibbles: number[] = [];
 
-  let safety = 10000;
+  // Safety bound: each iteration consumes ≥1 char, so remainder.length is an upper bound.
+  let safety = remainder.length + 1;
   while (--safety && remainder.length > 0) {
     let found = -1;
     for (let i = 0; i < 16; i++) {
@@ -115,7 +116,8 @@ function decoder64(s: string, tab: Theme): Uint8Array | null {
   const t3 = normalizeTab(tab.tab3)!;
   const pairs: number[] = [];
 
-  let safety = 10000;
+  // Safety bound: each iteration consumes ≥1 char, so remainder.length is an upper bound.
+  let safety = remainder.length + 1;
   while (--safety && remainder.length > 0) {
     let lo = -1;
     for (let i = 0; i < 4; i++) {
@@ -378,6 +380,7 @@ export function stegoEncode(bytes: Uint8Array, themeId: ThemeId): string {
 /** Auto-detect theme and decode steganographic text to bytes. */
 export function stegoDecode(text: string): DecodeResult | null {
   const trimmed = text.trim();
+  if (trimmed.length === 0) return null;
   for (const theme of THEMES) {
     // Quick rejection heuristic for flat base-offset themes (e.g. КИТАЙ)
     if (theme.model === 4096 && theme.base !== undefined) {
@@ -386,7 +389,7 @@ export function stegoDecode(text: string): DecodeResult | null {
     }
 
     const bytes = DECODERS[theme.model](trimmed, theme);
-    if (bytes && bytes.length > 0) {
+    if (bytes !== null) {
       return { bytes, theme: theme.id };
     }
   }

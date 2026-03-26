@@ -60,6 +60,27 @@ Output must survive copy-paste across Telegram, VK, WhatsApp, Instagram, Twitter
 - `src/stego.ts` — encoder/decoder for all models, auto-detection dispatch
 - `src/dictionaries.ts` — theme definitions (word lists, params, emoji chars)
 
+## Size Limits
+
+There is no hard byte-count limit on stego encoding/decoding — arbitrarily large payloads round-trip correctly for all models. The decoder loops are bounded by input length (each iteration consumes at least one character), so there is no risk of infinite loops on well-formed or malformed input.
+
+The practical limit is the **stego output character count**. The UI enforces a maximum of **50,000 characters** (`MAX_STEGO_CHARS` in `src/constants.ts`). This keeps output within typical high messenger limits (e.g. WhatsApp ~65K, VK). On Telegram (~4K per message), larger outputs need to be split across multiple messages. The cap also ensures fast decoding on slow devices (~1s worst case at 50× slowdown).
+
+Expansion ratios vary by model:
+
+| Theme | Model | Expansion (chars/byte) | Max payload at 50K limit |
+|---|---|---|---|
+| БУХАЮ | 16 | ~11.8× | ~4,200 bytes |
+| СССР | 16 | ~9.2× | ~5,400 bytes |
+| PATER | 4096 | ~9.1× | ~5,500 bytes |
+| БОЖЕ | 4096 | ~8.8× | ~5,700 bytes |
+| РОССИЯ | 16 | ~7.9× | ~6,300 bytes |
+| hex | 0 | 2.0× | ~25,000 bytes |
+| 🙂 | 1024 | 1.6× | ~31,000 bytes |
+| КИТАЙ | 4096 | 0.7× | ~71,000 bytes |
+
+For Russian text with squash compression (~1 byte/char), these translate roughly to the same numbers in input characters.
+
 ## Gotchas
 
 - Auto-detection iterates `THEMES` array in order, trying each decoder. First theme whose decoder successfully parses the input wins. Themes are ordered by token-set distinctiveness (most unique first) to minimize false-positive attempts.
