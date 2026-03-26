@@ -1,10 +1,9 @@
 import './style.css';
-import { checkX25519Support, generateKeyPair, encrypt, decrypt, encryptIntro, decryptIntro, seedCompMode, CLASS_MSG } from './crypto';
-import { compress, decompress } from './compress';
+import { checkX25519Support, generateKeyPair, encrypt, encryptIntro, CLASS_MSG } from './crypto';
+import { compress } from './compress';
 import { stegoEncode, stegoDecode } from './stego';
 import {
-  serializeMsg, serializeIntro, serializeContact,
-  couldBeMsg, couldBeIntro, splitIntro, tryParseContact, contactCheckBytes,
+  serializeMsg, serializeIntro, serializeContact, contactCheckBytes,
 } from './wire';
 import { type ThemeId, THEMES } from './dictionaries';
 import { STORAGE, storageGet, storageSet } from './storage';
@@ -23,7 +22,8 @@ import {
 import { speak, stopSpeaking, isSpeaking, hasVoiceForLang, onVoicesChanged } from './tts';
 import { exportIdentity, importIdentity } from './identity';
 import { loadChat, addChatMessage, clearChat, randomChatId } from './chat';
-import { tryParseBroadcastSigned, tryParseBroadcastUnsigned, serializeBroadcastSigned, serializeBroadcastUnsigned } from './broadcast';
+import { serializeBroadcastSigned, serializeBroadcastUnsigned } from './broadcast';
+import { classifyFrame, classifyFrameBroadcastMode, type KnownKey } from './detect';
 import { checkEd25519Support } from './sign';
 import { MAX_STEGO_CHARS } from './constants';
 
@@ -769,77 +769,34 @@ function updateBroadcastStatus(): void {
  * Returns true if content was handled (decoded or switched).
  */
 async function handleBroadcastModeDecode(bytes: Uint8Array, _theme: ThemeId): Promise<boolean> {
-  // 1. Try as signed broadcast — stay in broadcast mode
-  const candidateKeys = [myPublicKey, ...contacts.map(c => getContactKey(c))];
-  const signed = await tryParseBroadcastSigned(bytes, candidateKeys);
-  if (signed) {
-    try {
-      const plaintext = decompress(signed.compressed, signed.compMode);
-      await handleDecodedBroadcast(plaintext, signed, _theme);
+  const knownKeys: KnownKey[] = contacts.map(c => ({
+    name: c.name, key: getContactKey(c), contactId: c.id,
+  }));
+  const result = await classifyFrameBroadcastMode(bytes, myPrivateKey, myPublicKey, knownKeys);
+  if (!result) return false;
+
+  switch (result.type) {
+    case 'broadcast_signed':
+      await handleDecodedBroadcast(result.plaintext, result, _theme);
       return true;
-    } catch { /* fall through */ }
-  }
-
-  // 2. Try as unsigned broadcast — stay in broadcast mode
-  const unsigned = await tryParseBroadcastUnsigned(bytes);
-  if (unsigned) {
-    try {
-      const plaintext = decompress(unsigned.compressed, unsigned.compMode);
-      handleDecodedBroadcastUnsigned(plaintext, _theme);
+    case 'broadcast_unsigned':
+      handleDecodedBroadcastUnsigned(result.plaintext, _theme);
       return true;
-    } catch { /* fall through */ }
-  }
-
-  // 3. Try as MSG — auto-switch to regular mode
-  if (couldBeMsg(bytes)) {
-    const keysToTry: { name: string; key: Uint8Array; contactId?: string }[] = [];
-    for (const c of contacts) {
-      keysToTry.push({ name: c.name, key: getContactKey(c), contactId: c.id });
-    }
-    if (!keysToTry.some(e => u8eq(e.key, myPublicKey))) {
-      keysToTry.push({ name: 'Я', key: myPublicKey });
-    }
-
-    for (const { name, key, contactId } of keysToTry) {
-      try {
-        const decrypted = await decrypt(bytes, myPrivateKey, key, key, myPublicKey, CLASS_MSG);
-        const compMode = seedCompMode(bytes[0]);
-        const plaintext = decompress(decrypted, compMode);
-        exitBroadcastMode();
-        handleDecodedMsg(plaintext, name, contactId, _theme);
-        return true;
-      } catch {
-        // Auth failed — try next key
-      }
-    }
-  }
-
-  // 4. Try as INTRO — auto-switch to regular mode
-  if (couldBeIntro(bytes)) {
-    const { ephPub, payload: introPayload } = splitIntro(bytes);
-    try {
-      const decrypted = await decryptIntro(introPayload, myPrivateKey, ephPub, ephPub, myPublicKey);
-      if (decrypted.length < 34) throw new Error('payload too short');
-      const compMode = decrypted[0];
-      const senderPub = decrypted.slice(1, 33);
-      const plaintext = decompress(decrypted.slice(33), compMode);
+    case 'msg':
       exitBroadcastMode();
-      await handleDecodedIntro(senderPub, plaintext, _theme);
+      handleDecodedMsg(result.plaintext, result.senderName, result.contactId, _theme);
       return true;
-    } catch {
-      // Not an intro — fall through
-    }
+    case 'intro':
+      exitBroadcastMode();
+      await handleDecodedIntro(result.senderPub, result.plaintext, _theme);
+      return true;
+    case 'contact':
+      exitBroadcastMode();
+      await handleContactToken(result.publicKey);
+      return true;
+    default:
+      return false;
   }
-
-  // 5. Try as CONTACT — auto-switch to regular mode
-  const contactPub = await tryParseContact(bytes);
-  if (contactPub) {
-    exitBroadcastMode();
-    await handleContactToken(contactPub);
-    return true;
-  }
-
-  return false; // Nothing recognized — caller will broadcast-encode
 }
 
 /** Shared logic: process a successfully decoded introduction (sender pub + plaintext). */
@@ -924,90 +881,42 @@ function handleDecodedMsg(plaintext: string, senderName: string, contactId: stri
 }
 
 async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
-  // 1. Try as MSG: seed = bytes[0:6], rest = bytes[6:]
-  if (couldBeMsg(bytes)) {
-    const keysToTry: { name: string; key: Uint8Array; contactId?: string }[] = [];
-    for (const c of contacts) {
-      keysToTry.push({ name: c.name, key: getContactKey(c), contactId: c.id });
-    }
-    if (!keysToTry.some(e => u8eq(e.key, myPublicKey))) {
-      keysToTry.push({ name: 'Я', key: myPublicKey });
-    }
+  const knownKeys: KnownKey[] = contacts.map(c => ({
+    name: c.name, key: getContactKey(c), contactId: c.id,
+  }));
+  const result = await classifyFrame(bytes, myPrivateKey, myPublicKey, knownKeys);
 
-    for (const { name, key, contactId } of keysToTry) {
-      try {
-        const decrypted = await decrypt(bytes, myPrivateKey, key, key, myPublicKey, CLASS_MSG);
-        const compMode = seedCompMode(bytes[0]);
-        const plaintext = decompress(decrypted, compMode);
-        handleDecodedMsg(plaintext, name, contactId, _theme);
-        return;
-      } catch {
-        // Auth failed — try next key
-      }
-    }
-  }
-
-  // 2. Try as INTRO: eph_pub = bytes[0:32], rest = bytes[32:] (seedless — no seed on wire)
-  if (couldBeIntro(bytes)) {
-    const { ephPub, payload: introPayload } = splitIntro(bytes);
-    try {
-      const decrypted = await decryptIntro(introPayload, myPrivateKey, ephPub, ephPub, myPublicKey);
-      if (decrypted.length < 34) throw new Error('payload too short'); // comp:1 + sender:32 + at least 1
-      const compMode = decrypted[0];               // first byte = compression mode
-      const senderPub = decrypted.slice(1, 33);    // bytes 1-32 = sender key
-      const plaintext = decompress(decrypted.slice(33), compMode);
-      await handleDecodedIntro(senderPub, plaintext, _theme);
+  switch (result.type) {
+    case 'msg':
+      handleDecodedMsg(result.plaintext, result.senderName, result.contactId, _theme);
       return;
-    } catch {
-      // Not an intro — fall through
-    }
-  }
-
-  // 3. Try as BROADCAST_SIGNED (try all known keys as candidates)
-  const candidateKeys = [myPublicKey, ...contacts.map(c => getContactKey(c))];
-  const signed = await tryParseBroadcastSigned(bytes, candidateKeys);
-  if (signed) {
-    try {
-      const plaintext = decompress(signed.compressed, signed.compMode);
-      await handleDecodedBroadcast(plaintext, signed, _theme);
+    case 'intro':
+      await handleDecodedIntro(result.senderPub, result.plaintext, _theme);
       return;
-    } catch {
-      // Decompression failed (e.g. reserved compMode=3) — not a valid broadcast, fall through
-    }
-  }
-
-  // 4. Try as CONTACT: pub = bytes[0:32], check = bytes[32]
-  const contactPub = await tryParseContact(bytes);
-  if (contactPub) {
-    await handleContactToken(contactPub);
-    return;
-  }
-
-  // 5. Try as BROADCAST_UNSIGNED
-  const unsigned = await tryParseBroadcastUnsigned(bytes);
-  if (unsigned) {
-    try {
-      const plaintext = decompress(unsigned.compressed, unsigned.compMode);
-      handleDecodedBroadcastUnsigned(plaintext, _theme);
+    case 'broadcast_signed':
+      await handleDecodedBroadcast(result.plaintext, result, _theme);
       return;
-    } catch {
-      // Decompression failed — not a valid broadcast, fall through
-    }
+    case 'broadcast_unsigned':
+      handleDecodedBroadcastUnsigned(result.plaintext, _theme);
+      return;
+    case 'contact':
+      await handleContactToken(result.publicKey);
+      return;
+    case 'unknown':
+      lastDecodedSender = null;
+      outputEl.textContent = '';
+      setOutputLabel('Не удалось расшифровать');
+      setCopyableText('', '📋 Скопировать');
+      ttsText = '';
+      updateStatus('ошибка расшифровки');
+      return;
   }
-
-  // Nothing worked — show error instead of silently re-encrypting
-  lastDecodedSender = null;
-  outputEl.textContent = '';
-  setOutputLabel('Не удалось расшифровать');
-  setCopyableText('', '📋 Скопировать');
-  ttsText = '';
-  updateStatus('ошибка расшифровки');
 }
 
 /** Handle a decoded signed broadcast with three verification states. */
 async function handleDecodedBroadcast(
   plaintext: string,
-  result: import('./broadcast').BroadcastSigned,
+  result: { status: 'verified' | 'unverified' | 'failed'; fingerprint: Uint8Array; x25519Pub?: Uint8Array },
   _theme: ThemeId,
 ): Promise<void> {
   const knownSender = result.x25519Pub ? findContactByKey(result.x25519Pub) : null;

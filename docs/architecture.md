@@ -16,6 +16,7 @@ The UI is a single text field, an output label, and a contact strip. React/Vue/S
 
 ```
 main.ts              — Init, UI rendering, event wiring, state machine (processInput)
+├── detect.ts        — Frame classification: trial-decrypt decoded bytes, return typed result (pure, no DOM)
 ├── crypto.ts        — Web Crypto X25519, AES-GCM, HKDF key derivation
 ├── sign.ts          — XEdDSA signing (inline BigInt Ed25519 arithmetic), Montgomery↔Edwards conversion
 ├── broadcast.ts     — Broadcast frame serialization/parsing (signed + unsigned)

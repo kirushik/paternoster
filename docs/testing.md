@@ -43,6 +43,7 @@ tests/
 │   ├── sign.test.ts          # XEdDSA sign/verify, Montgomery→Edwards, malformed signatures, degenerate keys (25)
 │   ├── broadcast.test.ts     # Broadcast frame serialize/parse, flags, verification states (16)
 │   ├── identity.test.ts      # Export/import roundtrip, wrong passphrase, corruption (6)
+│   ├── detect.test.ts        # Frame classification pipeline: MSG/INTRO/broadcast/contact detection (17)
 │   ├── properties.test.ts    # Property-based tests: random-input roundtrips for all core invariants (21)
 │   └── types.test-d.ts       # Compile-time type tests (Theme, crypto, stego, compress types)
 ├── integration/
@@ -51,7 +52,7 @@ tests/
 │   ├── contact-exchange.test.ts  # Contact token through stego roundtrip (9)
 │   ├── conversation-protocol.test.ts  # Multi-turn conversation simulations, kex flows, multi-contact (18)
 │   ├── invite.test.ts        # Base64url token generate/parse (10)
-│   └── stego-benchmark.test.ts  # Transport limit verification (10)
+│   └── stego-benchmark.test.ts  # Transport limit verification, deterministic seeding (10)
 └── e2e/
     ├── helpers.ts            # Shared helpers: fillDialogAndConfirm, sendMessage, receiveFromKnown
     ├── basic.spec.ts         # Page load, key persistence, encode, copy, download (6)
@@ -61,7 +62,8 @@ tests/
     ├── theme-roundtrip.spec.ts   # Per-theme encode→decode roundtrip, all 8 themes (8)
     ├── large-message.spec.ts  # Large message conversation roundtrip (1)
     ├── broadcast.spec.ts     # Broadcast mode UX (banner, warm background, auto-detect), signed/unsigned, verification, dedup (12)
-    └── tts.spec.ts           # Button behavior, language per theme (5)
+    ├── tts.spec.ts           # Button behavior, language per theme (5)
+    └── visual.spec.ts        # Visual regression screenshots: default, broadcast, self-profile, encoded output (4)
 ```
 
 ## Adding Tests
@@ -89,6 +91,14 @@ When adding new encoding or serialization logic, add a corresponding property te
 ## Mutation Testing
 
 Stryker (`npm run test:mutate`) mutates source code and reruns tests to find assertions that don't actually verify anything. Config is in `stryker.config.json`, targeting critical modules (crypto, stego, compress, wire, broadcast, utils, sign, smaz, squash). HTML report goes to `reports/mutation/` (gitignored). Run locally as needed — not in CI (too slow, ~10-15 min).
+
+## Frame Classification Tests
+
+`detect.test.ts` tests the auto-detection pipeline (`src/detect.ts`) that was extracted from `main.ts`. This module is the core logic that determines what kind of frame decoded bytes represent (MSG, INTRO, broadcast signed/unsigned, contact). Tests cover both regular and broadcast mode classification, including priority ordering, self-encryption, unknown senders, and garbage input. These were previously only testable through E2E.
+
+## Visual Regression
+
+`tests/e2e/visual.spec.ts` captures baseline screenshots of key UI states using Playwright's `toHaveScreenshot()`. Generate initial baselines with `npx playwright test tests/e2e/visual.spec.ts --update-snapshots`. Screenshots are committed to git (under `tests/e2e/visual.spec.ts-snapshots/`) and diffed on future runs. Sensitive to platform rendering — run on consistent environments.
 
 ## E2E Wait Strategy
 
