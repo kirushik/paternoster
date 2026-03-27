@@ -260,14 +260,12 @@ describe('stego decoder robustness (mutation targets)', () => {
     expect(stegoDecode('ABC')).toBeNull(); // 3 chars = odd
   });
 
-  it('hex decoder handles whitespace in hex input', () => {
+  it('hex decoder strips whitespace from hex input', () => {
     const bytes = new Uint8Array([0xDE, 0xAD]);
     const encoded = stegoEncode(bytes, 'hex');
-    // Add spaces — should still decode
+    // Inject spaces between every char — decoder should strip them
     const withSpaces = encoded.split('').join(' ');
-    // hex decoder strips \s, but with spaces it becomes very long and might not match
-    // The important thing: clean hex roundtrips
-    const decoded = stegoDecode(encoded);
+    const decoded = stegoDecode(withSpaces);
     expect(decoded).not.toBeNull();
     expect(decoded!.bytes).toEqual(bytes);
   });
