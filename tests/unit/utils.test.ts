@@ -136,3 +136,58 @@ describe('contactCode', () => {
     expect(code1).not.toBe(code2);
   });
 });
+
+describe('hexU8 edge cases (mutation targets)', () => {
+  it('rejects string with non-hex prefix', () => {
+    expect(() => hexU8('ZZ0102')).toThrow('Invalid hex string');
+  });
+
+  it('rejects string with non-hex suffix', () => {
+    expect(() => hexU8('0102ZZ')).toThrow('Invalid hex string');
+  });
+
+  it('rejects string with non-hex in middle', () => {
+    expect(() => hexU8('01GG02')).toThrow('Invalid hex string');
+  });
+});
+
+describe('u8eq edge cases (mutation targets)', () => {
+  it('detects difference at last byte', () => {
+    const a = new Uint8Array([1, 2, 3, 4]);
+    const b = new Uint8Array([1, 2, 3, 5]);
+    expect(u8eq(a, b)).toBe(false);
+  });
+
+  it('detects difference at first byte', () => {
+    const a = new Uint8Array([0, 2, 3, 4]);
+    const b = new Uint8Array([1, 2, 3, 4]);
+    expect(u8eq(a, b)).toBe(false);
+  });
+
+  it('single-byte arrays', () => {
+    expect(u8eq(new Uint8Array([0]), new Uint8Array([0]))).toBe(true);
+    expect(u8eq(new Uint8Array([0]), new Uint8Array([1]))).toBe(false);
+  });
+});
+
+describe('base64url edge cases (mutation targets)', () => {
+  it('roundtrips data requiring 1 padding char', () => {
+    // 2 bytes = 3 base64 chars, needs 1 = padding
+    const data = new Uint8Array([0xFF, 0xFE]);
+    expect(base64urlToU8(u8toBase64url(data))).toEqual(data);
+  });
+
+  it('roundtrips data requiring 2 padding chars', () => {
+    // 1 byte = 2 base64 chars, needs 2 == padding
+    const data = new Uint8Array([0x42]);
+    expect(base64urlToU8(u8toBase64url(data))).toEqual(data);
+  });
+
+  it('last byte is preserved exactly', () => {
+    // Specifically test that the last byte isn't corrupted by off-by-one
+    const data = new Uint8Array([0x00, 0xFF]);
+    const roundtripped = base64urlToU8(u8toBase64url(data));
+    expect(roundtripped[0]).toBe(0x00);
+    expect(roundtripped[1]).toBe(0xFF);
+  });
+});

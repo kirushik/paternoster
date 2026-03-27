@@ -10,7 +10,7 @@
  * See docs/crypto.md for full spec.
  */
 
-import { concatU8 } from './utils';
+import { concatU8, sha256WithDomain } from './utils';
 import { SEED_LENGTH } from './crypto';
 
 // ── Compression mode constants (2-bit values, stored in seed[0] bits 7-6) ──
@@ -27,14 +27,12 @@ export const BROADCAST_UNSIGNED_TAG = 0x03;
 
 // ── CONTACT check byte ─────────────────────────────────
 
-/** Compute 2 check bytes for a CONTACT frame. 1/65536 false positive rate. */
-export function contactCheckBytes(pub: Uint8Array): [number, number] {
-  let a = 0x5A, b = 0xA5;
-  for (let i = 0; i < pub.length; i++) {
-    a ^= pub[i];
-    b ^= pub[i] ^ (i & 0xFF);
-  }
-  return [a, b];
+const CHECK_DOMAIN = new TextEncoder().encode('paternoster-check-v2');
+
+/** Compute 2 check bytes via truncated SHA-256. 1/65536 false positive rate. */
+export async function contactCheckBytes(data: Uint8Array): Promise<[number, number]> {
+  const bytes = await sha256WithDomain(data, CHECK_DOMAIN, 2);
+  return [bytes[0], bytes[1]];
 }
 
 // ── Serialize ───────────────────────────────────────────
@@ -50,8 +48,8 @@ export function serializeIntro(ephemeralPublicKey: Uint8Array, payload: Uint8Arr
 }
 
 /** Serialize a CONTACT frame: pub + 2 check bytes at the end. */
-export function serializeContact(publicKey: Uint8Array): Uint8Array {
-  const [a, b] = contactCheckBytes(publicKey);
+export async function serializeContact(publicKey: Uint8Array): Promise<Uint8Array> {
+  const [a, b] = await contactCheckBytes(publicKey);
   return concatU8(publicKey, new Uint8Array([a, b]));
 }
 
@@ -74,15 +72,15 @@ export function couldBeIntro(data: Uint8Array): boolean {
 }
 
 /** Try to parse as CONTACT. Returns the 32-byte public key or null. */
-export function tryParseContact(data: Uint8Array): Uint8Array | null {
+export async function tryParseContact(data: Uint8Array): Promise<Uint8Array | null> {
   if (data.length !== 34) return null;
   const pub = data.slice(0, 32);
-  const [a, b] = contactCheckBytes(pub);
+  const [a, b] = await contactCheckBytes(pub);
   if (data[32] !== a || data[33] !== b) return null;
   return pub;
 }
 
-/** Split INTRO bytes: first 32 = eph_pub, rest = encrypted payload (seed + ciphertext + tag). */
+/** Split INTRO bytes: first 32 = eph_pub, rest = encrypted payload (ciphertext + tag). */
 export function splitIntro(data: Uint8Array): { ephPub: Uint8Array; payload: Uint8Array } {
   return {
     ephPub: data.slice(0, 32),

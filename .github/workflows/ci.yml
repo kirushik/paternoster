@@ -24,8 +24,8 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
-      - name: Run tests
-        run: npx vitest run --reporter=verbose
+      - name: Run tests with coverage
+        run: npx vitest run --reporter=verbose --coverage
 
   e2e-tests:
     name: E2E Tests

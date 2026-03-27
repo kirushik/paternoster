@@ -2,7 +2,7 @@
  * Contact management: CRUD operations with localStorage persistence.
  */
 
-import { u8hex, hexU8 } from './utils';
+import { u8hex, hexU8, randomHexId } from './utils';
 import { STORAGE, storageGet, storageSet } from './storage';
 
 export interface Contact {
@@ -13,11 +13,9 @@ export interface Contact {
   keyExchangeConfirmed: boolean;
 }
 
-/** Generate a random ID. */
+/** Generate a random contact ID (8 bytes = 16 hex chars). */
 function randomId(): string {
-  return Array.from(crypto.getRandomValues(new Uint8Array(8)))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
+  return randomHexId(8);
 }
 
 /** Validate that a parsed object has the expected Contact shape. */

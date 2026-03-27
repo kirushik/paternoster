@@ -194,6 +194,10 @@ textarea#input::placeholder {
 .output-mode-label:empty {
   display: none;
 }
+.output-mode-label.sig-warning {
+  color: #c44;
+  font-weight: 600;
+}
 
 .output-label {
   font-family: inherit;

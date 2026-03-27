@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker/master/packages/core/schema/stryker-core.schema.json",
+  "mutate": [
+    "src/crypto.ts",
+    "src/sign.ts",
+    "src/stego.ts",
+    "src/compress.ts",
+    "src/squash.ts",
+    "src/smaz.ts",
+    "!src/smaz.ts:122-132",
+    "src/wire.ts",
+    "src/broadcast.ts",
+    "src/utils.ts"
+  ],
+  "testRunner": "vitest",
+  "checkers": ["typescript"],
+  "tsconfigFile": "tsconfig.json",
+  "reporters": ["clear-text", "html"],
+  "htmlReporter": {
+    "fileName": "reports/mutation/index.html"
+  },
+  "concurrency": 4,
+  "timeoutMS": 30000,
+  "thresholds": {
+    "high": 90,
+    "low": 80,
+    "break": 80
+  }
+}

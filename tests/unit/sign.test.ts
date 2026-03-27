@@ -112,6 +112,19 @@ describe('montgomeryToEdwards', () => {
     const pubKey = await crypto.subtle.importKey('raw', edwards, 'Ed25519', false, ['verify']);
     expect(pubKey.type).toBe('public');
   });
+
+  it('known test vector: specific Montgomery u → expected Edwards y', () => {
+    // Use the known keypair from XEdDSA fixed test vector section
+    const montPub = hexU8('599C8C9CF749CDA7C8B3974D89BA671DCED3C3FDF7D2FFD039BAE55A1135AA4D');
+    const edwards = montgomeryToEdwards(montPub);
+    // The Edwards point must be exactly 32 bytes and deterministic
+    expect(edwards.length).toBe(32);
+    // Verify it's consistent across calls
+    expect(montgomeryToEdwards(montPub)).toEqual(edwards);
+    // Snapshot the exact conversion output to catch arithmetic regressions
+    const edHex = Array.from(edwards).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+    expect(edHex).toMatchInlineSnapshot(`"FE942805E98AB654699E0E9298A73BC9C45C0FF41C81F9834BBE61127B0D8640"`);
+  });
 });
 
 describe('XEdDSA fixed test vector', () => {
@@ -131,6 +144,50 @@ describe('XEdDSA fixed test vector', () => {
 
   it('signature verifies against known public key', async () => {
     expect(await xeddsaVerify(hexU8(PUB), hexU8(SIG), new TextEncoder().encode(MSG))).toBe(true);
+  });
+});
+
+describe('malformed signatures', () => {
+  it('empty signature returns false', async () => {
+    const kp = await generateKeyPair();
+    const data = new TextEncoder().encode('test');
+    expect(await xeddsaVerify(kp.publicKey, new Uint8Array(0), data)).toBe(false);
+  });
+
+  it('too-short signature (32 bytes) returns false', async () => {
+    const kp = await generateKeyPair();
+    const data = new TextEncoder().encode('test');
+    expect(await xeddsaVerify(kp.publicKey, new Uint8Array(32), data)).toBe(false);
+  });
+
+  it('almost-right signature (63 bytes) returns false', async () => {
+    const kp = await generateKeyPair();
+    const data = new TextEncoder().encode('test');
+    expect(await xeddsaVerify(kp.publicKey, new Uint8Array(63), data)).toBe(false);
+  });
+
+  it('too-long signature (65 bytes) returns false', async () => {
+    const kp = await generateKeyPair();
+    const data = new TextEncoder().encode('test');
+    expect(await xeddsaVerify(kp.publicKey, new Uint8Array(65), data)).toBe(false);
+  });
+
+  it('oversized signature (128 bytes) returns false', async () => {
+    const kp = await generateKeyPair();
+    const data = new TextEncoder().encode('test');
+    expect(await xeddsaVerify(kp.publicKey, new Uint8Array(128), data)).toBe(false);
+  });
+
+  it('all-zero 64-byte signature returns false', async () => {
+    const kp = await generateKeyPair();
+    const data = new TextEncoder().encode('test');
+    expect(await xeddsaVerify(kp.publicKey, new Uint8Array(64).fill(0x00), data)).toBe(false);
+  });
+
+  it('all-0xFF 64-byte signature returns false', async () => {
+    const kp = await generateKeyPair();
+    const data = new TextEncoder().encode('test');
+    expect(await xeddsaVerify(kp.publicKey, new Uint8Array(64).fill(0xFF), data)).toBe(false);
   });
 });
 

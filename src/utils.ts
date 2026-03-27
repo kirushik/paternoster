@@ -47,10 +47,27 @@ export function concatU8(...arrays: Uint8Array[]): Uint8Array {
   return result;
 }
 
+/** SHA-256 of data, return first n bytes. */
+export async function sha256Bytes(data: Uint8Array, n: number): Promise<Uint8Array> {
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', data as BufferSource));
+  return hash.slice(0, n);
+}
+
+/** SHA-256 of (data || domain), return first n bytes. */
+export async function sha256WithDomain(data: Uint8Array, domain: Uint8Array, n: number): Promise<Uint8Array> {
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', concatU8(data, domain) as BufferSource));
+  return hash.slice(0, n);
+}
+
 /** Compute a short verification code from a public key (SHA-256, first 8 bytes as grouped hex). */
 export async function contactCode(publicKey: Uint8Array): Promise<string> {
-  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', publicKey as BufferSource));
-  return u8hex(hash.slice(0, 8)).match(/.{4}/g)!.join(' ');
+  const first8 = await sha256Bytes(publicKey, 8);
+  return u8hex(first8).match(/.{4}/g)!.join(' ');
+}
+
+/** Generate a random hex string of the specified byte length. */
+export function randomHexId(byteLength: number): string {
+  return u8hex(crypto.getRandomValues(new Uint8Array(byteLength)));
 }
 
 /** Compare two Uint8Arrays for equality */

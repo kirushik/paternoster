@@ -21,14 +21,15 @@ export async function fillDialogAndConfirm(
 /** Type a message, wait for encoding, click copy (commits to chat), return encoded text. */
 export async function sendMessage(page: Page, text: string): Promise<string> {
   await page.fill('#input', text);
-  await page.waitForTimeout(300); // debounce is 150ms
+
+  // Wait for "Скопировать сообщение" — this label only appears after successful encoding,
+  // distinguishing fresh encoded output from leftover decode/status text.
+  await expect(page.locator('#copy-btn')).toHaveText('Скопировать сообщение', { timeout: 5000 });
 
   const output = page.locator('#output');
-  await expect(output).not.toBeEmpty();
   const encoded = (await output.textContent())!;
   expect(encoded.length).toBeGreaterThan(10);
 
-  await expect(page.locator('#copy-btn')).toHaveText('Скопировать сообщение');
   await page.click('#copy-btn');
 
   // After copy, input/output auto-clear

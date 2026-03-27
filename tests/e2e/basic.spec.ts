@@ -30,7 +30,7 @@ test.describe('basic functionality', () => {
 
     // Need a contact to encrypt for — use self
     await page.fill('#input', 'Привет, мир!');
-    await page.waitForTimeout(300); // debounce
+    await expect(page.locator('#output')).not.toBeEmpty();
 
     const output = await page.textContent('#output');
     expect(output).toBeTruthy();
@@ -42,11 +42,12 @@ test.describe('basic functionality', () => {
     await page.waitForSelector('#input');
 
     await page.fill('#input', 'Тест');
-    await page.waitForTimeout(300);
+    await expect(page.locator('#output')).not.toBeEmpty();
     const output1 = await page.textContent('#output');
 
     await page.selectOption('#theme-select', 'РОССИЯ');
-    await page.waitForTimeout(300);
+    // Theme change triggers re-encode; wait for output to change
+    await expect(page.locator('#output')).not.toHaveText(output1!);
     const output2 = await page.textContent('#output');
 
     expect(output1).not.toBe(output2);
@@ -58,7 +59,7 @@ test.describe('basic functionality', () => {
     await page.waitForSelector('#input');
 
     await page.fill('#input', 'Копируемый текст');
-    await page.waitForTimeout(300);
+    await expect(page.locator('#output')).not.toBeEmpty();
 
     await page.click('#copy-btn');
     const clipboard = await page.evaluate(() => navigator.clipboard.readText());

@@ -1,14 +1,13 @@
 import './style.css';
-import { checkX25519Support, generateKeyPair, encrypt, decrypt, encryptIntro, decryptIntro, seedCompMode, CLASS_MSG } from './crypto';
-import { compress, decompress } from './compress';
+import { checkX25519Support, generateKeyPair, encrypt, encryptIntro, CLASS_MSG } from './crypto';
+import { compress } from './compress';
 import { stegoEncode, stegoDecode } from './stego';
 import {
   serializeMsg, serializeIntro, serializeContact,
-  couldBeMsg, couldBeIntro, splitIntro, tryParseContact, contactCheckBytes,
 } from './wire';
 import { type ThemeId, THEMES } from './dictionaries';
 import { STORAGE, storageGet, storageSet } from './storage';
-import { u8hex, hexU8, u8eq, concatU8, u8toBase64url, base64urlToU8, contactCode } from './utils';
+import { u8hex, hexU8, u8eq, concatU8, contactCode } from './utils';
 import {
   type Contact,
   loadContacts,
@@ -23,7 +22,10 @@ import {
 import { speak, stopSpeaking, isSpeaking, hasVoiceForLang, onVoicesChanged } from './tts';
 import { exportIdentity, importIdentity } from './identity';
 import { loadChat, addChatMessage, clearChat, randomChatId } from './chat';
-import { tryParseBroadcastSigned, tryParseBroadcastUnsigned, serializeBroadcastSigned, serializeBroadcastUnsigned } from './broadcast';
+import { serializeBroadcastSigned, serializeBroadcastUnsigned } from './broadcast';
+import { classifyFrame, classifyFrameBroadcastMode, type KnownKey } from './detect';
+import { checkEd25519Support } from './sign';
+import { tryParseInviteToken, makeInviteToken } from './invite';
 import { MAX_STEGO_CHARS } from './constants';
 
 // ── State ───────────────────────────────────────────────
@@ -36,6 +38,7 @@ let selectedTheme: ThemeId = 'БОЖЕ';
 let lastDecodedSender: string | null = null;
 let broadcastMode = false;
 let broadcastSigned = false;
+let ed25519Supported = false;
 let copyableText = '';
 let copyLabel = '📋 Скопировать';
 let ttsText = '';
@@ -60,6 +63,52 @@ let copyBtn: HTMLButtonElement;
 let ttsBtn: HTMLButtonElement;
 let errorEl: HTMLDivElement;
 
+// ── Helpers ─────────────────────────────────────────────
+
+function clearOutput(): void {
+  outputEl.textContent = '';
+  setOutputLabel('');
+  setCopyableText('', '📋 Скопировать');
+  ttsText = '';
+}
+
+async function copyToClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+}
+
+function buildKnownKeys(): KnownKey[] {
+  return contacts.map(c => ({
+    name: c.name,
+    key: getContactKey(c),
+    contactId: c.id,
+  }));
+}
+
+/** Commit a received/sent message to chat, optionally switch contact, render, handle dedup flash, and clear working area. */
+function commitToChat(msg: Parameters<typeof addChatMessage>[0], contactId?: string): void {
+  const chatResult = addChatMessage(msg);
+  if (contactId && selectedContactId !== contactId) {
+    selectedContactId = contactId;
+    setSelectedContactId(contactId);
+    renderContacts();
+  }
+  renderChat();
+  if (!chatResult.added) flashChatMessage(chatResult.duplicateId);
+  inputEl.value = '';
+  autoGrow(inputEl);
+  clearOutput();
+}
+
 // ── Init ────────────────────────────────────────────────
 
 async function init(): Promise<void> {
@@ -70,6 +119,8 @@ async function init(): Promise<void> {
       `<div class="fatal-error">${(e as Error).message}</div>`;
     return;
   }
+
+  ed25519Supported = await checkEd25519Support();
 
   await loadOrCreateIdentity();
   contacts = loadContacts();
@@ -99,7 +150,7 @@ async function checkHashInvite(): Promise<void> {
   const hash = location.hash.slice(1); // remove '#'
   if (!hash) return;
 
-  const key = tryParseInviteToken(hash);
+  const key = await tryParseInviteToken(hash);
   if (!key) return;
 
   // Clear hash so it doesn't trigger again on reload
@@ -157,7 +208,7 @@ function showDialog(config: {
   message?: string;
   fields?: DialogField[];
   confirmLabel: string;
-  validate?: (values: Record<string, string>) => string | null;
+  validate?: (values: Record<string, string>) => string | null | Promise<string | null>;
 }): Promise<Record<string, string> | null> {
   return new Promise(resolve => {
     let resolved = false;
@@ -244,10 +295,10 @@ function showDialog(config: {
       return values;
     };
 
-    confirmBtn.addEventListener('click', () => {
+    confirmBtn.addEventListener('click', async () => {
       const values = collectValues();
       if (config.validate) {
-        const error = config.validate(values);
+        const error = await config.validate(values);
         if (error) {
           errorDiv.textContent = error;
           return;
@@ -290,8 +341,8 @@ function render(): void {
       <div class="output-actions" id="output-actions">
         <select id="theme-select" title="Словарь"></select>
         ${broadcastMode ? `
-        <label class="broadcast-sign-check" id="broadcast-sign-label">
-          <input type="checkbox" id="broadcast-sign-toggle"${broadcastSigned ? ' checked' : ''}>
+        <label class="broadcast-sign-check" id="broadcast-sign-label"${!ed25519Supported ? ' title="Подпись недоступна в этом браузере"' : ''}>
+          <input type="checkbox" id="broadcast-sign-toggle"${broadcastSigned ? ' checked' : ''}${!ed25519Supported ? ' disabled' : ''}>
           Подписанное
         </label>` : ''}
         <button id="copy-btn" class="action-btn" title="Скопировать">📋 Скопировать</button>
@@ -450,15 +501,7 @@ function renderChat(): void {
       cpBtn.textContent = '📋';
       cpBtn.title = 'Скопировать зашифрованный текст';
       cpBtn.addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(encoded); } catch {
-          const ta = document.createElement('textarea');
-          ta.value = encoded;
-          ta.style.cssText = 'position:fixed;opacity:0';
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
-        }
+        await copyToClipboard(encoded);
         cpBtn.textContent = '✓';
         setTimeout(() => { cpBtn.textContent = '📋'; }, 1500);
       });
@@ -483,8 +526,9 @@ function flashChatMessage(msgId: string): void {
   bubble.addEventListener('animationend', () => bubble.classList.remove('flash'), { once: true });
 }
 
-function setOutputLabel(text: string): void {
+function setOutputLabel(text: string, warning = false): void {
   outputLabelEl.textContent = text;
+  outputLabelEl.classList.toggle('sig-warning', warning);
 }
 
 function setCopyableText(text: string, label: string): void {
@@ -550,7 +594,7 @@ function wireEvents(): void {
   // TTS: check voice availability on init
   updateTtsAvailability();
 
-  contactsEl.addEventListener('click', (e) => {
+  contactsEl.addEventListener('click', async (e) => {
     // Check if × delete button was clicked
     const deleteEl = (e.target as HTMLElement).closest('.contact-delete') as HTMLElement | null;
     if (deleteEl) {
@@ -566,7 +610,7 @@ function wireEvents(): void {
     if (id === 'self') {
       selectedContactId = null;
       setSelectedContactId('');
-      showOwnContactToken();
+      await showOwnContactToken();
     } else if (id === 'add') {
       handleAddContact();
     } else {
@@ -620,11 +664,7 @@ async function processInput(): Promise<void> {
 
   const text = inputEl.value.trim();
   if (!text) {
-    outputEl.textContent = '';
-    setOutputLabel('');
-    setCopyableText('', '📋 Скопировать');
-    ttsText = '';
-    ttsText = '';
+    clearOutput();
     lastDecodedSender = null;
     updateStatus();
     return;
@@ -633,7 +673,7 @@ async function processInput(): Promise<void> {
   // Broadcast mode: try to decode first, fall through to encode
   if (broadcastMode) {
     // Try invite token — auto-switch to regular mode
-    const inviteKey = tryParseInviteToken(text);
+    const inviteKey = await tryParseInviteToken(text);
     if (inviteKey) {
       exitBroadcastMode();
       await handleContactToken(inviteKey);
@@ -652,8 +692,8 @@ async function processInput(): Promise<void> {
     return;
   }
 
-  // Try base64url invite token first (compact format: 44 chars)
-  const inviteContact = tryParseInviteToken(text);
+  // Try base64url invite token first (46-char checked or 43-char raw)
+  const inviteContact = await tryParseInviteToken(text);
   if (inviteContact) {
     await handleContactToken(inviteContact);
     return;
@@ -697,10 +737,8 @@ async function handleEncode(plaintext: string): Promise<void> {
 
     const stegoText = stegoEncode(wireFrame, selectedTheme);
     if (stegoText.length > MAX_STEGO_CHARS) {
-      outputEl.textContent = '';
+      clearOutput();
       setOutputLabel(`Сообщение слишком длинное (${stegoText.length} символов, максимум ${MAX_STEGO_CHARS})`);
-      setCopyableText('', '📋 Скопировать');
-      ttsText = '';
       updateStatus('слишком длинное');
       return;
     }
@@ -722,23 +760,21 @@ async function handleBroadcastEncode(plaintext: string): Promise<void> {
     const { payload: compressed, compMode } = compress(plaintext);
     let wireFrame: Uint8Array;
 
-    if (broadcastSigned) {
+    if (broadcastSigned && ed25519Supported) {
       wireFrame = await serializeBroadcastSigned(
         compressed, compMode,
         myPublicKey, myPrivateKey,
       );
       setOutputLabel('Подписанная публикация');
     } else {
-      wireFrame = serializeBroadcastUnsigned(compressed, compMode);
+      wireFrame = await serializeBroadcastUnsigned(compressed, compMode);
       setOutputLabel('Публикация без подписи');
     }
 
     const stegoText = stegoEncode(wireFrame, selectedTheme);
     if (stegoText.length > MAX_STEGO_CHARS) {
-      outputEl.textContent = '';
+      clearOutput();
       setOutputLabel(`Сообщение слишком длинное (${stegoText.length} символов, максимум ${MAX_STEGO_CHARS})`);
-      setCopyableText('', '📋 Скопировать');
-      ttsText = '';
       updateBroadcastStatus();
       return;
     }
@@ -764,77 +800,31 @@ function updateBroadcastStatus(): void {
  * Returns true if content was handled (decoded or switched).
  */
 async function handleBroadcastModeDecode(bytes: Uint8Array, _theme: ThemeId): Promise<boolean> {
-  // 1. Try as signed broadcast — stay in broadcast mode
-  const candidateKeys = [myPublicKey, ...contacts.map(c => getContactKey(c))];
-  const signed = await tryParseBroadcastSigned(bytes, candidateKeys);
-  if (signed) {
-    try {
-      const plaintext = decompress(signed.compressed, signed.compMode);
-      await handleDecodedBroadcast(plaintext, signed, _theme);
+  const result = await classifyFrameBroadcastMode(bytes, myPrivateKey, myPublicKey, buildKnownKeys());
+  if (!result) return false;
+
+  switch (result.type) {
+    case 'broadcast_signed':
+      await handleDecodedBroadcast(result.plaintext, result, _theme);
       return true;
-    } catch { /* fall through */ }
-  }
-
-  // 2. Try as unsigned broadcast — stay in broadcast mode
-  const unsigned = tryParseBroadcastUnsigned(bytes);
-  if (unsigned) {
-    try {
-      const plaintext = decompress(unsigned.compressed, unsigned.compMode);
-      handleDecodedBroadcastUnsigned(plaintext, _theme);
+    case 'broadcast_unsigned':
+      handleDecodedBroadcastUnsigned(result.plaintext, _theme);
       return true;
-    } catch { /* fall through */ }
-  }
-
-  // 3. Try as MSG — auto-switch to regular mode
-  if (couldBeMsg(bytes)) {
-    const keysToTry: { name: string; key: Uint8Array; contactId?: string }[] = [];
-    for (const c of contacts) {
-      keysToTry.push({ name: c.name, key: getContactKey(c), contactId: c.id });
-    }
-    if (!keysToTry.some(e => u8eq(e.key, myPublicKey))) {
-      keysToTry.push({ name: 'Я', key: myPublicKey });
-    }
-
-    for (const { name, key, contactId } of keysToTry) {
-      try {
-        const decrypted = await decrypt(bytes, myPrivateKey, key, key, myPublicKey, CLASS_MSG);
-        const compMode = seedCompMode(bytes[0]);
-        const plaintext = decompress(decrypted, compMode);
-        exitBroadcastMode();
-        handleDecodedMsg(plaintext, name, contactId, _theme);
-        return true;
-      } catch {
-        // Auth failed — try next key
-      }
-    }
-  }
-
-  // 4. Try as INTRO — auto-switch to regular mode
-  if (couldBeIntro(bytes)) {
-    const { ephPub, payload: introPayload } = splitIntro(bytes);
-    try {
-      const decrypted = await decryptIntro(introPayload, myPrivateKey, ephPub, ephPub, myPublicKey);
-      if (decrypted.length < 34) throw new Error('payload too short');
-      const compMode = decrypted[0];
-      const senderPub = decrypted.slice(1, 33);
-      const plaintext = decompress(decrypted.slice(33), compMode);
+    case 'msg':
       exitBroadcastMode();
-      await handleDecodedIntro(senderPub, plaintext, _theme);
+      handleDecodedMsg(result.plaintext, result.senderName, result.contactId, _theme);
       return true;
-    } catch {
-      // Not an intro — fall through
-    }
+    case 'intro':
+      exitBroadcastMode();
+      await handleDecodedIntro(result.senderPub, result.plaintext, _theme);
+      return true;
+    case 'contact':
+      exitBroadcastMode();
+      await handleContactToken(result.publicKey);
+      return true;
+    default:
+      return false;
   }
-
-  // 5. Try as CONTACT — auto-switch to regular mode
-  const contactPub = tryParseContact(bytes);
-  if (contactPub) {
-    exitBroadcastMode();
-    await handleContactToken(contactPub);
-    return true;
-  }
-
-  return false; // Nothing recognized — caller will broadcast-encode
 }
 
 /** Shared logic: process a successfully decoded introduction (sender pub + plaintext). */
@@ -849,24 +839,11 @@ async function handleDecodedIntro(senderPub: Uint8Array, plaintext: string, _the
       contacts = loadContacts();
     }
     lastDecodedSender = knownSender.name;
-    const chatResult = addChatMessage({
+    commitToChat({
       id: randomChatId(), direction: 'received', plaintext,
       encoded: inputEl.value.trim(), contactId: knownSender.id,
       senderName: knownSender.name, timestamp: Date.now(), theme: _theme,
-    });
-    if (selectedContactId !== knownSender.id) {
-      selectedContactId = knownSender.id;
-      setSelectedContactId(knownSender.id);
-      renderContacts();
-    }
-    renderChat();
-    if (!chatResult.added) flashChatMessage(chatResult.duplicateId);
-    inputEl.value = '';
-    autoGrow(inputEl);
-    outputEl.textContent = '';
-    setOutputLabel('');
-    setCopyableText('', '📋 Скопировать');
-    ttsText = '';
+    }, knownSender.id);
   } else {
     pendingNewContact = {
       senderKey: senderPub, plaintext,
@@ -894,24 +871,11 @@ function handleDecodedMsg(plaintext: string, senderName: string, contactId: stri
       confirmKeyExchange(senderContact.id);
       contacts = loadContacts();
     }
-    const chatResult = addChatMessage({
+    commitToChat({
       id: randomChatId(), direction: 'received', plaintext,
       encoded: inputEl.value.trim(), contactId,
       senderName, timestamp: Date.now(), theme: _theme,
-    });
-    if (selectedContactId !== contactId) {
-      selectedContactId = contactId;
-      setSelectedContactId(contactId);
-      renderContacts();
-    }
-    renderChat();
-    if (!chatResult.added) flashChatMessage(chatResult.duplicateId);
-    inputEl.value = '';
-    autoGrow(inputEl);
-    outputEl.textContent = '';
-    setOutputLabel('');
-    setCopyableText('', '📋 Скопировать');
-    ttsText = '';
+    }, contactId);
   } else {
     setOutputLabel(`Расшифровано · от ${lastDecodedSender}`);
   }
@@ -919,90 +883,37 @@ function handleDecodedMsg(plaintext: string, senderName: string, contactId: stri
 }
 
 async function handleDecode(bytes: Uint8Array, _theme: ThemeId): Promise<void> {
-  // 1. Try as MSG: seed = bytes[0:6], rest = bytes[6:]
-  if (couldBeMsg(bytes)) {
-    const keysToTry: { name: string; key: Uint8Array; contactId?: string }[] = [];
-    for (const c of contacts) {
-      keysToTry.push({ name: c.name, key: getContactKey(c), contactId: c.id });
-    }
-    if (!keysToTry.some(e => u8eq(e.key, myPublicKey))) {
-      keysToTry.push({ name: 'Я', key: myPublicKey });
-    }
+  const result = await classifyFrame(bytes, myPrivateKey, myPublicKey, buildKnownKeys());
 
-    for (const { name, key, contactId } of keysToTry) {
-      try {
-        const decrypted = await decrypt(bytes, myPrivateKey, key, key, myPublicKey, CLASS_MSG);
-        const compMode = seedCompMode(bytes[0]);
-        const plaintext = decompress(decrypted, compMode);
-        handleDecodedMsg(plaintext, name, contactId, _theme);
-        return;
-      } catch {
-        // Auth failed — try next key
-      }
-    }
-  }
-
-  // 2. Try as INTRO: eph_pub = bytes[0:32], rest = bytes[32:] (seedless — no seed on wire)
-  if (couldBeIntro(bytes)) {
-    const { ephPub, payload: introPayload } = splitIntro(bytes);
-    try {
-      const decrypted = await decryptIntro(introPayload, myPrivateKey, ephPub, ephPub, myPublicKey);
-      if (decrypted.length < 34) throw new Error('payload too short'); // comp:1 + sender:32 + at least 1
-      const compMode = decrypted[0];               // first byte = compression mode
-      const senderPub = decrypted.slice(1, 33);    // bytes 1-32 = sender key
-      const plaintext = decompress(decrypted.slice(33), compMode);
-      await handleDecodedIntro(senderPub, plaintext, _theme);
+  switch (result.type) {
+    case 'msg':
+      handleDecodedMsg(result.plaintext, result.senderName, result.contactId, _theme);
       return;
-    } catch {
-      // Not an intro — fall through
-    }
-  }
-
-  // 3. Try as BROADCAST_SIGNED (try all known keys as candidates)
-  const candidateKeys = [myPublicKey, ...contacts.map(c => getContactKey(c))];
-  const signed = await tryParseBroadcastSigned(bytes, candidateKeys);
-  if (signed) {
-    try {
-      const plaintext = decompress(signed.compressed, signed.compMode);
-      await handleDecodedBroadcast(plaintext, signed, _theme);
+    case 'intro':
+      await handleDecodedIntro(result.senderPub, result.plaintext, _theme);
       return;
-    } catch {
-      // Decompression failed (e.g. reserved compMode=3) — not a valid broadcast, fall through
-    }
-  }
-
-  // 4. Try as CONTACT: pub = bytes[0:32], check = bytes[32]
-  const contactPub = tryParseContact(bytes);
-  if (contactPub) {
-    await handleContactToken(contactPub);
-    return;
-  }
-
-  // 5. Try as BROADCAST_UNSIGNED
-  const unsigned = tryParseBroadcastUnsigned(bytes);
-  if (unsigned) {
-    try {
-      const plaintext = decompress(unsigned.compressed, unsigned.compMode);
-      handleDecodedBroadcastUnsigned(plaintext, _theme);
+    case 'broadcast_signed':
+      await handleDecodedBroadcast(result.plaintext, result, _theme);
       return;
-    } catch {
-      // Decompression failed — not a valid broadcast, fall through
-    }
+    case 'broadcast_unsigned':
+      handleDecodedBroadcastUnsigned(result.plaintext, _theme);
+      return;
+    case 'contact':
+      await handleContactToken(result.publicKey);
+      return;
+    case 'unknown':
+      lastDecodedSender = null;
+      clearOutput();
+      setOutputLabel('Не удалось расшифровать');
+      updateStatus('ошибка расшифровки');
+      return;
   }
-
-  // Nothing worked — show error instead of silently re-encrypting
-  lastDecodedSender = null;
-  outputEl.textContent = '';
-  setOutputLabel('Не удалось расшифровать');
-  setCopyableText('', '📋 Скопировать');
-  ttsText = '';
-  updateStatus('ошибка расшифровки');
 }
 
 /** Handle a decoded signed broadcast with three verification states. */
 async function handleDecodedBroadcast(
   plaintext: string,
-  result: import('./broadcast').BroadcastSigned,
+  result: { status: 'verified' | 'unverified' | 'failed'; fingerprint: Uint8Array; x25519Pub?: Uint8Array },
   _theme: ThemeId,
 ): Promise<void> {
   const knownSender = result.x25519Pub ? findContactByKey(result.x25519Pub) : null;
@@ -1022,28 +933,15 @@ async function handleDecodedBroadcast(
     setOutputLabel(`Публикация · от ${knownSender.name}`);
     setCopyableText(plaintext, 'Скопировать текст');
 
-    const chatResult = addChatMessage({
+    commitToChat({
       id: randomChatId(), direction: 'received', plaintext,
       encoded: inputEl.value.trim(), contactId: knownSender.id,
       senderName: knownSender.name, timestamp: Date.now(), theme: _theme,
       type: 'broadcast',
-    });
-    if (selectedContactId !== knownSender.id) {
-      selectedContactId = knownSender.id;
-      setSelectedContactId(knownSender.id);
-      renderContacts();
-    }
-    renderChat();
-    if (!chatResult.added) flashChatMessage(chatResult.duplicateId);
-    inputEl.value = '';
-    autoGrow(inputEl);
-    outputEl.textContent = '';
-    setOutputLabel('');
-    setCopyableText('', '📋 Скопировать');
-    ttsText = '';
+    }, knownSender.id);
   } else if (result.status === 'failed') {
     lastDecodedSender = null;
-    setOutputLabel(`Публикация · подпись не прошла проверку (код ${fpHex})`);
+    setOutputLabel(`Публикация · подпись не прошла проверку (код ${fpHex})`, true);
     setCopyableText(plaintext, 'Скопировать текст');
   } else {
     // unverified — unknown sender, no matching fingerprint
@@ -1094,11 +992,10 @@ async function handleSavePendingContact(): Promise<void> {
   if (!result) return;
 
   const name = result.name.trim();
-  addContact(name, pendingNewContact.senderKey);
+  const newContact = addContact(name, pendingNewContact.senderKey);
   contacts = loadContacts();
 
   // Switch to the new contact's chat and commit the first message
-  const newContact = contacts[contacts.length - 1];
   selectedContactId = newContact.id;
   setSelectedContactId(selectedContactId);
 
@@ -1123,10 +1020,7 @@ async function handleSavePendingContact(): Promise<void> {
   // Clear working area
   inputEl.value = '';
   autoGrow(inputEl);
-  outputEl.textContent = '';
-  setOutputLabel('');
-  setCopyableText('', '📋 Скопировать');
-  ttsText = '';
+  clearOutput();
   updateStatus();
 }
 
@@ -1167,50 +1061,18 @@ async function handleContactToken(publicKey: Uint8Array): Promise<void> {
   updateStatus();
 }
 
-/** Try to parse a base64url invite token. Returns the 32-byte public key or null. */
-function tryParseInviteToken(text: string): Uint8Array | null {
-  // Invite token format: base64url of [0x20][32-byte public key] = 33 bytes = 44 base64url chars
-  // Also accept just the raw base64url of the 32-byte key (43 chars)
-  // Also accept full URLs with hash fragment: https://any-domain.com/path#TOKEN
-  let clean = text.replace(/\s/g, '');
-  const hashIdx = clean.indexOf('#');
-  if (hashIdx !== -1) {
-    clean = clean.slice(hashIdx + 1);
-  }
-  if (!/^[A-Za-z0-9_-]{43,46}$/.test(clean)) return null;
+// tryParseInviteToken and makeInviteToken moved to src/invite.ts
 
-  try {
-    const decoded = base64urlToU8(clean);
-    if (decoded.length === 34) {
-      const pub = decoded.slice(0, 32);
-      const [a, b] = contactCheckBytes(pub);
-      if (decoded[32] === a && decoded[33] === b) return pub;
-    }
-    if (decoded.length === 32) {
-      return decoded;
-    }
-  } catch {
-    // Not valid base64
-  }
-  return null;
-}
-
-/** Generate a compact base64url invite token for sharing. */
-function makeInviteToken(publicKey: Uint8Array): string {
-  const wire = serializeContact(publicKey);
-  return u8toBase64url(wire);
-}
-
-function makeInviteLink(publicKey: Uint8Array): string {
-  const token = makeInviteToken(publicKey);
+async function makeInviteLink(publicKey: Uint8Array): Promise<string> {
+  const token = await makeInviteToken(publicKey);
   const base = location.origin + location.pathname;
   return base + '#' + token;
 }
 
-function showOwnContactToken(): void {
-  const inviteLink = makeInviteLink(myPublicKey);
-  const inviteToken = makeInviteToken(myPublicKey);
-  const tokenBytes = serializeContact(myPublicKey);
+async function showOwnContactToken(): Promise<void> {
+  const inviteLink = await makeInviteLink(myPublicKey);
+  const inviteToken = await makeInviteToken(myPublicKey);
+  const tokenBytes = await serializeContact(myPublicKey);
   const stegoText = stegoEncode(tokenBytes, selectedTheme);
 
   outputEl.textContent = '';
@@ -1246,17 +1108,7 @@ function showOwnContactToken(): void {
   inviteCopyBtn.className = 'action-btn invite-copy-btn';
   inviteCopyBtn.textContent = '📋 Скопировать ссылку';
   inviteCopyBtn.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(inviteLink);
-    } catch {
-      const ta = document.createElement('textarea');
-      ta.value = inviteLink;
-      ta.style.cssText = 'position:fixed;opacity:0';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
+    await copyToClipboard(inviteLink);
     inviteCopyBtn.textContent = '✓ Скопировано';
     setTimeout(() => { inviteCopyBtn.textContent = '📋 Скопировать ссылку'; }, 1500);
   });
@@ -1314,12 +1166,12 @@ async function handleAddContact(): Promise<void> {
       { name: 'name', type: 'text', placeholder: 'Имя контакта' },
     ],
     confirmLabel: 'Добавить',
-    validate: (values) => {
+    validate: async (values) => {
       if (!values.token.trim()) return 'Вставьте приглашение или ключ';
       if (!values.name.trim()) return 'Введите имя контакта';
 
       const clean = values.token.trim();
-      parsedKey = tryParseInviteToken(clean);
+      parsedKey = await tryParseInviteToken(clean);
       if (!parsedKey) {
         const hexClean = clean.replace(/\s/g, '').toUpperCase();
         if (/^[0-9A-F]{64}$/.test(hexClean)) {
@@ -1436,25 +1288,13 @@ async function handleCopy(): Promise<void> {
   const text = copyableText || outputEl.textContent || '';
   if (!text) return;
 
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    // Fallback for file:// or older browsers
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textarea);
-  }
+  await copyToClipboard(text);
 
   // Commit sent message to chat history
   if (selectedContactId && copyLabel === 'Скопировать сообщение') {
     const plaintext = inputEl.value.trim();
     if (plaintext) {
-      const chatResult = addChatMessage({
+      commitToChat({
         id: randomChatId(),
         direction: 'sent',
         plaintext,
@@ -1463,15 +1303,6 @@ async function handleCopy(): Promise<void> {
         timestamp: Date.now(),
         theme: selectedTheme,
       });
-      renderChat();
-      if (!chatResult.added) flashChatMessage(chatResult.duplicateId);
-      // Auto-clear working area for next message
-      inputEl.value = '';
-      autoGrow(inputEl);
-      outputEl.textContent = '';
-      setOutputLabel('');
-      setCopyableText('', '📋 Скопировать');
-    ttsText = '';
     }
   }
 

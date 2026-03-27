@@ -8,7 +8,7 @@ test.describe('contact management', () => {
 
     // Click "Я" pill
     await page.click('[data-id="self"]');
-    await page.waitForTimeout(200);
+    await expect(page.locator('.invite-token')).toBeVisible();
 
     // Should show invite link
     const inviteLink = await page.locator('.invite-link').textContent();
@@ -27,7 +27,7 @@ test.describe('contact management', () => {
     await alicePage.goto('http://localhost:5199');
     await alicePage.waitForSelector('#input');
     await alicePage.click('[data-id="self"]');
-    await alicePage.waitForTimeout(200);
+    await expect(alicePage.locator('.invite-link')).toBeVisible();
 
     const inviteLink = await alicePage.locator('.invite-link').getAttribute('href');
     expect(inviteLink).toBeTruthy();
@@ -108,7 +108,7 @@ test.describe('identity export and import', () => {
 
     // Open "Я" profile
     await page.click('[data-id="self"]');
-    await page.waitForTimeout(200);
+    await expect(page.locator('.invite-token')).toBeVisible();
 
     // Expand "Дополнительно"
     await page.click('summary:has-text("Дополнительно")');
@@ -143,7 +143,7 @@ test.describe('identity export and import', () => {
     }));
 
     await pageA.click('[data-id="self"]');
-    await pageA.waitForTimeout(200);
+    await expect(pageA.locator('.invite-token')).toBeVisible();
     await pageA.click('summary:has-text("Дополнительно")');
     await pageA.click('button:has-text("Сохранить профиль")');
     await fillDialogAndConfirm(pageA, {
@@ -171,7 +171,7 @@ test.describe('identity export and import', () => {
     expect(keysBBefore).not.toBe(keysA.pub);
 
     await pageB.click('[data-id="self"]');
-    await pageB.waitForTimeout(300);
+    await expect(pageB.locator('.invite-token')).toBeVisible();
     const summary = pageB.locator('summary:has-text("Дополнительно")');
     await expect(summary).toBeVisible();
     await summary.click();
@@ -183,10 +183,7 @@ test.describe('identity export and import', () => {
       'Пароль': 'секрет',
     });
 
-    await pageB.waitForTimeout(500);
-    const errorText = await pageB.locator('#error').textContent();
-    if (errorText) console.log(`IMPORT_ERROR: "${errorText}"`);
-    await expect(pageB.locator('#output-mode-label')).toHaveText('Профиль восстановлен');
+    await expect(pageB.locator('#output-mode-label')).toHaveText('Профиль восстановлен', { timeout: 5000 });
 
     // Keys should now match context A
     const keysBAfter = await pageB.evaluate(() => ({
@@ -217,13 +214,13 @@ test.describe('contact interaction', () => {
     // Type a message with "Я" selected
     await page.click('[data-id="self"]');
     await page.fill('#input', 'Тест');
-    await page.waitForTimeout(300);
+    await expect(page.locator('#output')).not.toBeEmpty();
     const output1 = await page.textContent('#output');
 
     // Select Bob — output should change (different key)
     const bobPill = page.locator('.contact-pill', { hasText: 'Bob' });
     await bobPill.click();
-    await page.waitForTimeout(300);
+    await expect(page.locator('#output')).not.toHaveText(output1!);
     const output2 = await page.textContent('#output');
 
     expect(output1).not.toBe(output2);

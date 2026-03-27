@@ -4,6 +4,7 @@
  */
 
 import { type ThemeId } from './dictionaries';
+import { randomHexId } from './utils';
 
 export interface ChatMessage {
   id: string;
@@ -22,11 +23,24 @@ function chatStorageKey(contactId: string): string {
   return `paternoster_chat_${contactId}`;
 }
 
+function isValidMessage(m: unknown): m is ChatMessage {
+  if (typeof m !== 'object' || m === null) return false;
+  const r = m as Record<string, unknown>;
+  return typeof r.id === 'string' &&
+    typeof r.plaintext === 'string' &&
+    typeof r.encoded === 'string' &&
+    typeof r.timestamp === 'number' &&
+    typeof r.direction === 'string' &&
+    typeof r.contactId === 'string';
+}
+
 export function loadChat(contactId: string): ChatMessage[] {
   try {
     const raw = sessionStorage.getItem(chatStorageKey(contactId));
     if (!raw) return [];
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isValidMessage);
   } catch { return []; }
 }
 
@@ -50,7 +64,5 @@ export function addChatMessage(msg: ChatMessage): { added: true } | { added: fal
 }
 
 export function randomChatId(): string {
-  return Array.from(crypto.getRandomValues(new Uint8Array(6)))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
+  return randomHexId(6);
 }

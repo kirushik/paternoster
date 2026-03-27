@@ -21,7 +21,7 @@ test.describe('multi-round conversation', () => {
     // ── Phase 2: Contact exchange — Bob adds Alice via invite token ──
 
     await alicePage.click('[data-id="self"]');
-    await alicePage.waitForTimeout(200);
+    await expect(alicePage.locator('.invite-token')).toBeVisible();
     const aliceToken = await alicePage.locator('.invite-token').textContent();
     expect(aliceToken).toBeTruthy();
 
@@ -43,8 +43,7 @@ test.describe('multi-round conversation', () => {
 
     // Alice pastes Bob's encoded message — unknown sender
     await alicePage.fill('#input', encoded1);
-    await alicePage.waitForTimeout(300);
-
+    await expect(alicePage.locator('#save-contact-btn')).toBeVisible({ timeout: 5000 });
     await expect(alicePage.locator('#output-mode-label')).toContainText('от нового контакта');
     await expect(alicePage.locator('#output')).toHaveText(msg1);
     await expect(alicePage.locator('#save-contact-btn')).toBeVisible();
