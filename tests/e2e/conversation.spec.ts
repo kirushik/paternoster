@@ -43,8 +43,8 @@ test.describe('multi-round conversation', () => {
 
     // Alice pastes Bob's encoded message — unknown sender
     await alicePage.fill('#input', encoded1);
-
-    await expect(alicePage.locator('#output-mode-label')).toContainText('от нового контакта', { timeout: 5000 });
+    await expect(alicePage.locator('#save-contact-btn')).toBeVisible({ timeout: 5000 });
+    await expect(alicePage.locator('#output-mode-label')).toContainText('от нового контакта');
     await expect(alicePage.locator('#output')).toHaveText(msg1);
     await expect(alicePage.locator('#save-contact-btn')).toBeVisible();
 

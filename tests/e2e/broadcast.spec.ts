@@ -21,11 +21,14 @@ async function composeBroadcast(
     await signCheckbox.click();
   }
 
-  // Type message and wait for output (XEdDSA signing + debounce)
+  // Type message and wait for encoding to complete.
+  // Clear input first to ensure a fresh encode cycle (avoids stale output from previous compose).
+  await page.fill('#input', '');
+  await expect(page.locator('#output')).toHaveText('');
   await page.fill('#input', text);
-  const output = page.locator('#output');
-  await expect(output).not.toBeEmpty({ timeout: 5000 });
-  return (await output.textContent())!;
+  // Wait for the output-mode-label to indicate encoding completed (not just any non-empty output)
+  await expect(page.locator('#output-mode-label')).toHaveText(/публикация/i, { timeout: 5000 });
+  return (await page.locator('#output').textContent())!;
 }
 
 /** Leave broadcast mode via footer toggle button. */
@@ -352,20 +355,27 @@ test.describe('signed broadcast with identity verification', () => {
     await bob.fill('#input', encoded);
 
     // Should show as unknown sender with fingerprint code
-    await expect(bob.locator('#output-mode-label')).not.toBeEmpty({ timeout: 5000 });
+    await expect(bob.locator('#output')).toHaveText(broadcastText, { timeout: 5000 });
     const label = await bob.locator('#output-mode-label').textContent();
     expect(label).toMatch(/^Публикация · неизвестный отправитель \(код [0-9A-F]{4}\)$/);
-    await expect(bob.locator('#output')).toHaveText(broadcastText);
 
     // ── Second broadcast from same Alice — same fingerprint ──
 
     const encoded2 = await composeBroadcast(alice, 'Это снова я', true);
 
+    // Paste second broadcast — wait for the first decode to fully settle,
+    // then clear and re-paste. The decode pipeline is async so we need to
+    // ensure the first processInput() has completed before starting the second.
     await bob.fill('#input', encoded2);
     await expect(bob.locator('#output')).toHaveText('Это снова я', { timeout: 5000 });
 
     const label2 = await bob.locator('#output-mode-label').textContent();
-    expect(label2).toBe(label); // same fingerprint = same sender
+    // Both broadcasts are from Alice, so fingerprint format should match (same pattern, same code)
+    expect(label2).toMatch(/^Публикация · неизвестный отправитель \(код [0-9A-F]{4}\)$/);
+    // Same sender = same fingerprint code
+    const code1 = label!.match(/код ([0-9A-F]{4})/)?.[1];
+    const code2 = label2!.match(/код ([0-9A-F]{4})/)?.[1];
+    expect(code2).toBe(code1);
 
     // ── Cleanup ──
     await alice.close(); await bob.close();

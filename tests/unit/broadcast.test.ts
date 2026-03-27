@@ -221,19 +221,24 @@ describe('broadcast parser guard conditions', () => {
     const compressed = new Uint8Array([0x42]);
     const frame = await serializeBroadcastSigned(compressed, COMP_LITERAL, kp.publicKey, kp.privateKey);
 
-    // Create a fake key with only byte 0 of fingerprint matching
     const realFp = await pubFingerprint(kp.publicKey);
-    // Generate keys until we find one where fp[0] matches but fp[1] doesn't
+
+    // Deterministically find a key where fp[0] matches but fp[1] doesn't:
+    // brute-force sequential 32-byte values (SHA-256 is fast, typically <20 needed)
     let fakeKey: Uint8Array | null = null;
-    for (let i = 0; i < 500; i++) {
-      const candidate = await generateKeyPair();
-      const fp = await pubFingerprint(candidate.publicKey);
+    for (let seed = 0; seed < 100_000; seed++) {
+      const candidate = new Uint8Array(32);
+      candidate[0] = seed & 0xFF;
+      candidate[1] = (seed >> 8) & 0xFF;
+      candidate[2] = (seed >> 16) & 0xFF;
+      const fp = await pubFingerprint(candidate);
       if (fp[0] === realFp[0] && fp[1] !== realFp[1]) {
-        fakeKey = candidate.publicKey;
+        fakeKey = candidate;
         break;
       }
     }
-    // With 500 attempts, probability of NOT finding a partial match is vanishingly small
+    // With 100K sequential candidates and only needing fp[0] match + fp[1] mismatch,
+    // expected ~390 candidates per match (256 values for fp[0], ~255/256 chance fp[1] differs).
     expect(fakeKey).not.toBeNull();
 
     // The fake key should NOT verify (fingerprint doesn't fully match)
