@@ -64,8 +64,7 @@ tests/
     ├── theme-roundtrip.spec.ts   # Per-theme encode→decode roundtrip, all 8 themes (8)
     ├── large-message.spec.ts  # Large message conversation roundtrip (1)
     ├── broadcast.spec.ts     # Broadcast mode UX (banner, warm background, auto-detect), signed/unsigned, verification, dedup (12)
-    ├── tts.spec.ts           # Button behavior, language per theme (5)
-    └── visual.spec.ts        # Visual regression screenshots: default, broadcast, self-profile, encoded output (4)
+    └── tts.spec.ts           # Button behavior, language per theme (5)
 ```
 
 ## Adding Tests
@@ -101,10 +100,6 @@ Surviving mutants in the initial run revealed several real assertion gaps: HKDF 
 ## Frame Classification Tests
 
 `detect.test.ts` tests the auto-detection pipeline (`src/detect.ts`) that was extracted from `main.ts`. This module is the core logic that determines what kind of frame decoded bytes represent (MSG, INTRO, broadcast signed/unsigned, contact). Tests cover both regular and broadcast mode classification, including priority ordering, self-encryption, unknown senders, and garbage input. These were previously only testable through E2E.
-
-## Visual Regression
-
-`tests/e2e/visual.spec.ts` captures baseline screenshots of key UI states using Playwright's `toHaveScreenshot()`. Generate initial baselines with `npx playwright test tests/e2e/visual.spec.ts --update-snapshots`. Screenshots are committed to git (under `tests/e2e/visual.spec.ts-snapshots/`) and diffed on future runs. Sensitive to platform rendering — run on consistent environments.
 
 ## E2E Wait Strategy
 
