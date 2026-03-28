@@ -32,11 +32,12 @@ describe('flags byte packing', () => {
 });
 
 describe('BROADCAST_UNSIGNED serialization', () => {
-  it('produces flags + compressed + 2 check bytes', async () => {
+  it('produces compressed + flags + 2 check bytes', async () => {
     const compressed = new Uint8Array([0x41, 0x42, 0x43]);
     const frame = await serializeBroadcastUnsigned(compressed, COMP_LITERAL);
-    expect(frame.length).toBe(1 + 3 + 2);
-    expect(flagsTag(frame[0])).toBe(BROADCAST_UNSIGNED_TAG);
+    expect(frame.length).toBe(3 + 1 + 2);
+    // flags is at the tail, 3rd byte from end
+    expect(flagsTag(frame[frame.length - 3])).toBe(BROADCAST_UNSIGNED_TAG);
   });
 
   it('roundtrips through parse', async () => {
@@ -161,8 +162,8 @@ describe('BROADCAST_SIGNED through stego roundtrip with candidate match', () => 
     const decoded = stegoDecode(stegoText);
     expect(decoded).not.toBeNull();
 
-    // Check discriminator survives stego
-    expect(flagsTag(decoded!.bytes[0])).toBe(BROADCAST_SIGNED_TAG);
+    // Check discriminator survives stego (flags is at tail, 67 bytes from end)
+    expect(flagsTag(decoded!.bytes[decoded!.bytes.length - 67])).toBe(BROADCAST_SIGNED_TAG);
 
     // Verify with candidate key
     const parsed = await tryParseBroadcastSigned(decoded!.bytes, [kp.publicKey]);
@@ -194,8 +195,8 @@ describe('broadcast parser guard conditions', () => {
     // Build a frame that's the right length but has SIGNED tag instead of UNSIGNED
     const compressed = new Uint8Array([0x41, 0x42, 0x43]);
     const frame = await serializeBroadcastUnsigned(compressed, COMP_LITERAL);
-    // Replace flags byte with signed tag (keeping compMode bits)
-    frame[0] = packFlags(COMP_LITERAL, BROADCAST_SIGNED_TAG);
+    // Replace flags byte (at tail, 3rd from end) with signed tag
+    frame[frame.length - 3] = packFlags(COMP_LITERAL, BROADCAST_SIGNED_TAG);
     expect(await tryParseBroadcastUnsigned(frame)).toBeNull();
   });
 
@@ -203,15 +204,14 @@ describe('broadcast parser guard conditions', () => {
     const kp = await generateKeyPair();
     const compressed = new Uint8Array([0x01]);
     const frame = await serializeBroadcastSigned(compressed, COMP_LITERAL, kp.publicKey, kp.privateKey);
-    // Replace flags byte with unsigned tag
-    frame[0] = packFlags(COMP_LITERAL, BROADCAST_UNSIGNED_TAG);
+    // Replace flags byte (at tail, 67th from end) with unsigned tag
+    frame[frame.length - 67] = packFlags(COMP_LITERAL, BROADCAST_UNSIGNED_TAG);
     expect(await tryParseBroadcastSigned(frame)).toBeNull();
   });
 
   it('rejects too-short data for signed broadcast even with correct tag', async () => {
     // MIN_SIGNED_SIZE is 67 (flags:1 + fp:2 + sig:64)
     const tooShort = new Uint8Array(66);
-    tooShort[0] = packFlags(COMP_LITERAL, BROADCAST_SIGNED_TAG);
     expect(await tryParseBroadcastSigned(tooShort)).toBeNull();
   });
 
