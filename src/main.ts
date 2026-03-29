@@ -116,8 +116,10 @@ async function init(): Promise<void> {
   try {
     await checkX25519Support();
   } catch (e) {
-    document.getElementById('app')!.innerHTML =
-      `<div class="fatal-error">${(e as Error).message}</div>`;
+    const fatal = document.createElement('div');
+    fatal.className = 'fatal-error';
+    fatal.textContent = (e as Error).message;
+    document.getElementById('app')!.replaceChildren(fatal);
     return;
   }
 
@@ -660,7 +662,26 @@ function autoGrow(el: HTMLTextAreaElement): void {
 
 // ── Core logic ──────────────────────────────────────────
 
+let processingInput = false;
+let inputDirty = false;
+
 async function processInput(): Promise<void> {
+  if (processingInput) {
+    inputDirty = true;
+    return;
+  }
+  processingInput = true;
+  try {
+    do {
+      inputDirty = false;
+      await processInputInner();
+    } while (inputDirty);
+  } finally {
+    processingInput = false;
+  }
+}
+
+async function processInputInner(): Promise<void> {
   pendingNewContact = null;
   removeSaveContactBtn();
 

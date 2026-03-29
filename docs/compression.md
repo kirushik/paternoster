@@ -63,6 +63,7 @@ From benchmarks on Russian blog comments (vs original UTF-8):
 ## Gotchas
 
 - Smaz's `decompress()` throws on malformed input (truncated escapes, invalid indices). Don't catch these silently — they indicate data corruption.
+- `squashDecode()` throws on: trailing escape byte with no UTF-8 data, invalid UTF-8 lead byte after escape (must be 0xC2-0xF4), incomplete UTF-8 sequences, and invalid continuation bytes (`TextDecoder` with `{fatal: true}`). This matches smaz's strict error behavior.
 - The squash escape byte is `0x98` — the only unmapped byte in CP1251. If CP1251 ever gets an update mapping 0x98 to something, squash breaks. (This won't happen.)
 - The compressor never expands: it always falls back to the smallest of literal, squash-only, and squash+smaz.
 - `decompress()` throws on unknown compression modes with a user-facing Russian error message suggesting the message may be from a newer version.

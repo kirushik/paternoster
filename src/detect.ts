@@ -104,7 +104,7 @@ export async function classifyFrame(
     try {
       const { ephPub, payload } = splitIntro(bytes);
       const decrypted = await decryptIntro(payload, myPrivateKey, ephPub, ephPub, myPublicKey);
-      if (decrypted.length >= 34) {
+      if (decrypted.length >= 33) {
         const compMode = decrypted[0];
         const senderPub = decrypted.slice(1, 33);
         const plaintext = decompress(decrypted.slice(33), compMode);
@@ -212,7 +212,7 @@ export async function classifyFrameBroadcastMode(
     try {
       const { ephPub, payload } = splitIntro(bytes);
       const decrypted = await decryptIntro(payload, myPrivateKey, ephPub, ephPub, myPublicKey);
-      if (decrypted.length >= 34) {
+      if (decrypted.length >= 33) {
         const compMode = decrypted[0];
         const senderPub = decrypted.slice(1, 33);
         const plaintext = decompress(decrypted.slice(33), compMode);

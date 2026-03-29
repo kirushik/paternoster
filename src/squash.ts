@@ -61,6 +61,8 @@ export function squashEncode(text: string): Uint8Array {
   return new Uint8Array(out);
 }
 
+const STRICT_UTF8 = new TextDecoder('utf-8', { fatal: true });
+
 /** Decode squash-encoded bytes back to Unicode string. */
 export function squashDecode(data: Uint8Array): string {
   const chars: string[] = [];
@@ -73,15 +75,16 @@ export function squashDecode(data: Uint8Array): string {
     } else if (b === ESCAPE) {
       // Read inline UTF-8 sequence
       i++;
-      if (i >= data.length) break;
+      if (i >= data.length) throw new Error('Squash: неожиданный конец данных после escape-байта');
       const lead = data[i];
+      if (lead < 0xC2 || lead > 0xF4) throw new Error('Squash: некорректный UTF-8 после escape-байта');
       let seqLen: number;
-      if (lead < 0xC0) seqLen = 1;
-      else if (lead < 0xE0) seqLen = 2;
+      if (lead < 0xE0) seqLen = 2;
       else if (lead < 0xF0) seqLen = 3;
       else seqLen = 4;
+      if (i + seqLen > data.length) throw new Error('Squash: неполная UTF-8 последовательность');
       const utf8Bytes = data.slice(i, i + seqLen);
-      chars.push(new TextDecoder().decode(utf8Bytes));
+      chars.push(STRICT_UTF8.decode(utf8Bytes));
       i += seqLen;
     } else {
       const ch = CP1251_TO_CHAR.get(b);

@@ -10,6 +10,8 @@ import { squashEncode, squashDecode } from './squash';
 import { smazCyrillic } from './smaz';
 import { COMP_LITERAL, COMP_SQUASH_SMAZ, COMP_SQUASH_ONLY } from './wire';
 
+const STRICT_UTF8 = new TextDecoder('utf-8', { fatal: true });
+
 /** Compression result: raw payload bytes + which compression mode won. */
 export interface CompressResult {
   payload: Uint8Array;
@@ -44,7 +46,7 @@ export function decompress(data: Uint8Array, compMode: number): string {
   if (data.length === 0) return '';
 
   if (compMode === COMP_LITERAL) {
-    return new TextDecoder().decode(data);
+    return STRICT_UTF8.decode(data);
   }
 
   if (compMode === COMP_SQUASH_ONLY) {

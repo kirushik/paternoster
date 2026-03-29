@@ -76,7 +76,7 @@ async function receiveIntro(
     payload, recipient.privateKey, ephPub,
     ephPub, recipient.publicKey,
   );
-  expect(decrypted.length).toBeGreaterThanOrEqual(34);
+  expect(decrypted.length).toBeGreaterThanOrEqual(33);
 
   const compMode = decrypted[0];
   const senderPub = decrypted.slice(1, 33);
@@ -328,6 +328,18 @@ describe('self-encryption', () => {
     const stego = await sendIntro(alice, alice.publicKey, 'INTRO себе');
     const recv = await receiveIntro(alice, stego);
     expect(recv.plaintext).toBe('INTRO себе');
+    expect(recv.senderPub).toEqual(alice.publicKey);
+  });
+});
+
+describe('empty-message INTRO', () => {
+  it('INTRO with empty plaintext roundtrips', async () => {
+    const alice = await generateKeyPair();
+    const bob = await generateKeyPair();
+
+    const stego = await sendIntro(alice, bob.publicKey, '');
+    const recv = await receiveIntro(bob, stego);
+    expect(recv.plaintext).toBe('');
     expect(recv.senderPub).toEqual(alice.publicKey);
   });
 });
