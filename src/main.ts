@@ -663,12 +663,19 @@ function autoGrow(el: HTMLTextAreaElement): void {
 // ── Core logic ──────────────────────────────────────────
 
 let processingInput = false;
+let inputDirty = false;
 
 async function processInput(): Promise<void> {
-  if (processingInput) return;
+  if (processingInput) {
+    inputDirty = true;
+    return;
+  }
   processingInput = true;
   try {
-    await processInputInner();
+    do {
+      inputDirty = false;
+      await processInputInner();
+    } while (inputDirty);
   } finally {
     processingInput = false;
   }
