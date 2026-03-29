@@ -38,6 +38,12 @@ describe('theme table sizes', () => {
     expect(t.tab2).toHaveLength(16);
   });
 
+  it('TRUMP has correct table sizes (model 16)', () => {
+    const t = THEME_MAP.get('TRUMP')!;
+    expect(t.tab1).toHaveLength(16);
+    expect(t.tab2).toHaveLength(16);
+  });
+
   it('🙂 has 1024 emoji chars (model 1024)', () => {
     const t = THEME_MAP.get('🙂')!;
     expect([...t.chars!]).toHaveLength(1024);

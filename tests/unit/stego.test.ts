@@ -14,7 +14,7 @@ function randomBytes(n: number): Uint8Array {
 }
 
 describe('stego roundtrip per theme', () => {
-  const themes: ThemeId[] = ['БОЖЕ', 'РОССИЯ', 'СССР', 'БУХАЮ', 'КИТАЙ', 'PATER', '🙂', 'hex'];
+  const themes: ThemeId[] = ['БОЖЕ', 'РОССИЯ', 'СССР', 'БУХАЮ', 'КИТАЙ', 'PATER', '🙂', 'hex', 'TRUMP'];
 
   for (const themeId of themes) {
     describe(`theme: ${themeId}`, () => {
@@ -64,6 +64,11 @@ describe('stego auto-detection', () => {
     expect(result).toBeNull();
   });
 
+  it('returns null for plain English text', () => {
+    const result = stegoDecode('The weather is nice today and I like pizza');
+    expect(result).toBeNull();
+  });
+
   it('does not confuse themes', () => {
     const input = randomBytes(20);
     const bozhe = stegoEncode(input, 'БОЖЕ');
@@ -106,7 +111,7 @@ describe('stego FE0F robustness', () => {
 });
 
 describe('large payload roundtrip (safety counter regression)', () => {
-  const model16Themes: ThemeId[] = ['РОССИЯ', 'СССР', 'БУХАЮ'];
+  const model16Themes: ThemeId[] = ['РОССИЯ', 'СССР', 'БУХАЮ', 'TRUMP'];
 
   for (const themeId of model16Themes) {
     it(`roundtrips 6000 random bytes through ${themeId} (model-16)`, () => {
@@ -141,7 +146,7 @@ describe('large payload roundtrip (safety counter regression)', () => {
 });
 
 describe('model-16 boundary and stress tests', () => {
-  const model16Themes: ThemeId[] = ['РОССИЯ', 'СССР', 'БУХАЮ'];
+  const model16Themes: ThemeId[] = ['РОССИЯ', 'СССР', 'БУХАЮ', 'TRUMP'];
 
   // Old safety counter was 10000 iterations = 5000 bytes. Test boundaries.
   for (const themeId of model16Themes) {
@@ -190,7 +195,7 @@ describe('model-16 boundary and stress tests', () => {
 });
 
 describe('truncated large encoded text', () => {
-  const model16Themes: ThemeId[] = ['РОССИЯ', 'СССР', 'БУХАЮ'];
+  const model16Themes: ThemeId[] = ['РОССИЯ', 'СССР', 'БУХАЮ', 'TRUMP'];
 
   for (const themeId of model16Themes) {
     it(`truncated large ${themeId} message does not crash`, () => {

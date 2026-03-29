@@ -1,7 +1,7 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { fillDialogAndConfirm, sendMessage, receiveFromKnown } from './helpers';
 
-const ALL_THEMES = ['КИТАЙ', 'PATER', 'БОЖЕ', 'БУХАЮ', 'РОССИЯ', 'СССР', '🙂', 'hex'];
+const ALL_THEMES = ['КИТАЙ', 'PATER', 'БОЖЕ', 'БУХАЮ', 'TRUMP', 'РОССИЯ', 'СССР', '🙂', 'hex'];
 
 test.describe('per-theme roundtrip', () => {
   let aliceContext: BrowserContext;

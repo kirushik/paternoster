@@ -3,7 +3,7 @@ import { stegoEncode, stegoDecode } from '../../src/stego';
 import { type ThemeId } from '../../src/dictionaries';
 import { MAX_STEGO_CHARS } from '../../src/constants';
 
-const THEMES: ThemeId[] = ['БОЖЕ', 'РОССИЯ', 'СССР', 'БУХАЮ', 'КИТАЙ', 'PATER', '🙂', 'hex'];
+const THEMES: ThemeId[] = ['БОЖЕ', 'РОССИЯ', 'СССР', 'БУХАЮ', 'КИТАЙ', 'PATER', '🙂', 'hex', 'TRUMP'];
 
 /** Deterministic pseudo-random bytes (simple LCG, seed-based). */
 function seededBytes(n: number, seed = 42): Uint8Array {
@@ -31,6 +31,15 @@ describe('stego output stays within transport limits', () => {
     // so Math.random() table switching has zero effect on expected output length.
     const input = seededBytes(4300);
     const encoded = stegoEncode(input, 'БУХАЮ');
+    expect(encoded.length).toBeGreaterThan(MAX_STEGO_CHARS);
+  });
+
+  it('TRUMP (~23x expansion) exceeds limit at ~2600 bytes', () => {
+    // Theoretical threshold is ~2173 bytes (50000/23), but TRUMP has highly
+    // variable token lengths (5–18 chars) and Math.random() tab switching.
+    // 2600 bytes provides comfortable margin against low-expansion runs.
+    const input = seededBytes(2600);
+    const encoded = stegoEncode(input, 'TRUMP');
     expect(encoded.length).toBeGreaterThan(MAX_STEGO_CHARS);
   });
 
