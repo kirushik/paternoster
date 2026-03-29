@@ -513,7 +513,6 @@ textarea#input::placeholder {
   color: #8e8e93;
   opacity: 0.4;
   transition: opacity 0.15s;
-  cursor: pointer;
   user-select: all;
   max-width: 50vw;
   overflow: hidden;

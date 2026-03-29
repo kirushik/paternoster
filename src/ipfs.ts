@@ -36,8 +36,11 @@ function base58btc(bytes: Uint8Array): string {
   return '1'.repeat(zeros) + chars.reverse().join('');
 }
 
+const IPFS_CHUNK_LIMIT = 262144; // 256KB default chunk size
+
 /** CIDv0 matching `ipfs add` for single-chunk files (<256KB). Returns 46-char "Qm..." string. */
 export async function cidv0(file: Uint8Array): Promise<string> {
+  if (file.length >= IPFS_CHUNK_LIMIT) throw new Error('File too large for single-chunk CIDv0');
   const node = dagPbNode(unixfsFile(file));
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', node as BufferSource));
   return base58btc(concatU8(new Uint8Array([0x12, 0x20]), digest));
