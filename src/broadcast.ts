@@ -95,8 +95,8 @@ export interface BroadcastSigned {
   x25519Pub?: Uint8Array;
 }
 
-const MIN_UNSIGNED_SIZE = 4;  // flags(1) + compressed(1) + check(2)
-const MIN_SIGNED_SIZE = 67;   // flags(1) + fp(2) + compressed(0) + sig(64)
+const MIN_UNSIGNED_SIZE = 4;  // compressed(1) + flags(1) + check(2)
+const MIN_SIGNED_SIZE = 67;   // compressed(0) + flags(1) + fp(2) + sig(64)
 
 /** Try to parse as BROADCAST_UNSIGNED. Wire: [compressed:N][flags:1][check:2]. */
 export async function tryParseBroadcastUnsigned(data: Uint8Array): Promise<BroadcastUnsigned | null> {

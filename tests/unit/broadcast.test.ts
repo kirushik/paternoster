@@ -209,8 +209,8 @@ describe('broadcast parser guard conditions', () => {
     expect(await tryParseBroadcastSigned(frame)).toBeNull();
   });
 
-  it('rejects too-short data for signed broadcast even with correct tag', async () => {
-    // MIN_SIGNED_SIZE is 67 (flags:1 + fp:2 + sig:64)
+  it('rejects too-short data for signed broadcast', async () => {
+    // MIN_SIGNED_SIZE is 67 (compressed:0 + flags:1 + fp:2 + sig:64); any shorter buffer must be rejected
     const tooShort = new Uint8Array(66);
     expect(await tryParseBroadcastSigned(tooShort)).toBeNull();
   });

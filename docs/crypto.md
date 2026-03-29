@@ -24,7 +24,7 @@ X25519 (Curve25519 ECDH) provides 128-bit security with 32-byte keys — the sho
 
 ## Wire Format
 
-Headerless frames — every frame starts with random bytes for optimal steganographic cover.
+Headerless frames — every frame starts with random or variable bytes for optimal steganographic cover.
 
 **Frame structures:**
 
