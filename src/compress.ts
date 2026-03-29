@@ -44,7 +44,7 @@ export function decompress(data: Uint8Array, compMode: number): string {
   if (data.length === 0) return '';
 
   if (compMode === COMP_LITERAL) {
-    return new TextDecoder().decode(data);
+    return new TextDecoder('utf-8', { fatal: true }).decode(data);
   }
 
   if (compMode === COMP_SQUASH_ONLY) {

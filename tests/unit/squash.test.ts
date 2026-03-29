@@ -74,6 +74,46 @@ describe('squash edge cases', () => {
   });
 });
 
+describe('squash malformed escape sequences', () => {
+  it('throws on trailing escape byte', () => {
+    expect(() => squashDecode(new Uint8Array([0x98]))).toThrow();
+  });
+
+  it('throws on trailing escape after valid ASCII', () => {
+    expect(() => squashDecode(new Uint8Array([0x41, 0x98]))).toThrow();
+  });
+
+  it('throws on continuation byte as lead (0x80)', () => {
+    expect(() => squashDecode(new Uint8Array([0x98, 0x80]))).toThrow();
+  });
+
+  it('throws on ASCII byte after escape (0x41)', () => {
+    expect(() => squashDecode(new Uint8Array([0x98, 0x41]))).toThrow();
+  });
+
+  it('throws on overlong lead byte (0xC0)', () => {
+    expect(() => squashDecode(new Uint8Array([0x98, 0xC0, 0x80]))).toThrow();
+  });
+
+  it('throws on overlong lead byte (0xC1)', () => {
+    expect(() => squashDecode(new Uint8Array([0x98, 0xC1, 0x80]))).toThrow();
+  });
+
+  it('throws on invalid lead byte (0xF5+)', () => {
+    expect(() => squashDecode(new Uint8Array([0x98, 0xF5, 0x80, 0x80, 0x80]))).toThrow();
+  });
+
+  it('throws on incomplete 3-byte sequence', () => {
+    // 0xE0 expects 3 bytes total, but only 2 available
+    expect(() => squashDecode(new Uint8Array([0x98, 0xE0, 0x80]))).toThrow();
+  });
+
+  it('throws on invalid continuation bytes', () => {
+    // 0xC3 expects valid continuation byte (0x80-0xBF), gets 0x00
+    expect(() => squashDecode(new Uint8Array([0x98, 0xC3, 0x00]))).toThrow();
+  });
+});
+
 describe('squash boundary values (mutation targets)', () => {
   it('byte 0x80 (CP1251 Ђ / U+0402) roundtrips as single byte', () => {
     const text = '\u0402'; // Ђ — first CP1251 high byte

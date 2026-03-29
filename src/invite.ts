@@ -14,7 +14,6 @@ import { contactCheckBytes, serializeContact } from './wire';
  *
  * Accepts:
  * - 46-char base64url (32-byte key + 2 check bytes = 34 bytes)
- * - 43-char base64url (raw 32-byte key)
  * - Full URL with hash fragment: https://any-domain.com/path#TOKEN
  */
 export async function tryParseInviteToken(text: string): Promise<Uint8Array | null> {
@@ -31,9 +30,6 @@ export async function tryParseInviteToken(text: string): Promise<Uint8Array | nu
       const pub = decoded.slice(0, 32);
       const [a, b] = await contactCheckBytes(pub);
       if (decoded[32] === a && decoded[33] === b) return pub;
-    }
-    if (decoded.length === 32) {
-      return decoded;
     }
   } catch {
     // Not valid base64

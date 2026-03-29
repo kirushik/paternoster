@@ -1,25 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { u8toBase64url, base64urlToU8 } from '../../src/utils';
-import { serializeContact, contactCheckBytes } from '../../src/wire';
+import { u8toBase64url } from '../../src/utils';
+import { serializeContact } from '../../src/wire';
 import { generateKeyPair } from '../../src/crypto';
 
-// Reproduce tryParseInviteToken logic (main.ts has DOM deps)
-async function tryParseInviteToken(text: string): Promise<Uint8Array | null> {
-  let clean = text.replace(/\s/g, '');
-  const hashIdx = clean.indexOf('#');
-  if (hashIdx !== -1) clean = clean.slice(hashIdx + 1);
-  if (!/^[A-Za-z0-9_-]{43,46}$/.test(clean)) return null;
-  try {
-    const decoded = base64urlToU8(clean);
-    if (decoded.length === 34) {
-      const pub = decoded.slice(0, 32);
-      const [a, b] = await contactCheckBytes(pub);
-      if (decoded[32] === a && decoded[33] === b) return pub;
-    }
-    if (decoded.length === 32) return decoded;
-  } catch { /* not valid base64 */ }
-  return null;
-}
+// Import directly from src (pure logic, no DOM deps)
+import { tryParseInviteToken } from '../../src/invite';
 
 async function makeInviteToken(publicKey: Uint8Array): Promise<string> {
   return u8toBase64url(await serializeContact(publicKey));
@@ -33,11 +18,11 @@ describe('invite token roundtrip', () => {
     expect(await tryParseInviteToken(token)).toEqual(publicKey);
   });
 
-  it('parses raw 32-byte base64url (43 chars)', async () => {
+  it('rejects raw 32-byte base64url without check bytes', async () => {
     const { publicKey } = await generateKeyPair();
     const raw43 = u8toBase64url(publicKey);
     expect(raw43.length).toBe(43);
-    expect(await tryParseInviteToken(raw43)).toEqual(publicKey);
+    expect(await tryParseInviteToken(raw43)).toBeNull();
   });
 });
 

@@ -109,7 +109,7 @@ The `showDialog()` utility returns a Promise that resolves with field values on 
 ### Sharing your contact
 
 Tap "Я" in the contact strip. The app shows (output label: "Мой контакт"):
-1. **Verification code** — `XXXX XXXX XXXX XXXX` derived from your public key. A convenience code for quick human comparison out-of-band (32 bits of collision resistance, sufficient for honest verification).
+1. **Verification code** — `XXXX XXXX XXXX XXXX` derived from your public key. A convenience code for quick human comparison out-of-band (64 bits of collision resistance, sufficient for honest verification).
 2. **Invite link** — `https://domain/#base64url_token`. Clicking opens the app and auto-imports the contact. The hash is cleared from URL after import.
 3. **Compact token** — 44-char base64url string. Paste-friendly for any channel.
 4. **Themed text** — the contact token encoded as a prayer/slogan/etc. Steganographic sharing.

@@ -116,8 +116,10 @@ async function init(): Promise<void> {
   try {
     await checkX25519Support();
   } catch (e) {
-    document.getElementById('app')!.innerHTML =
-      `<div class="fatal-error">${(e as Error).message}</div>`;
+    const fatal = document.createElement('div');
+    fatal.className = 'fatal-error';
+    fatal.textContent = (e as Error).message;
+    document.getElementById('app')!.replaceChildren(fatal);
     return;
   }
 
