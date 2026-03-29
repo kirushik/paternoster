@@ -662,7 +662,19 @@ function autoGrow(el: HTMLTextAreaElement): void {
 
 // ── Core logic ──────────────────────────────────────────
 
+let processingInput = false;
+
 async function processInput(): Promise<void> {
+  if (processingInput) return;
+  processingInput = true;
+  try {
+    await processInputInner();
+  } finally {
+    processingInput = false;
+  }
+}
+
+async function processInputInner(): Promise<void> {
   pendingNewContact = null;
   removeSaveContactBtn();
 
