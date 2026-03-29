@@ -8,6 +8,7 @@ import {
 import { type ThemeId, THEMES } from './dictionaries';
 import { STORAGE, storageGet, storageSet } from './storage';
 import { u8hex, hexU8, u8eq, concatU8, contactCode } from './utils';
+import { initCidDisplay } from './cid';
 import {
   type Contact,
   loadContacts,
@@ -129,6 +130,7 @@ async function init(): Promise<void> {
 
   render();
   wireEvents();
+  initCidDisplay();
 
   // Pre-compute verification codes (async, updates UI when ready)
   refreshContactCodes();

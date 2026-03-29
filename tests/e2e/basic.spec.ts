@@ -66,6 +66,14 @@ test.describe('basic functionality', () => {
     expect(clipboard).toBeTruthy();
   });
 
+  test('CID badge appears with valid CIDv0', async ({ page }) => {
+    await page.goto('/');
+    const badge = page.locator('.cid-badge');
+    await expect(badge).toBeVisible();
+    const text = await badge.textContent();
+    expect(text).toMatch(/^ipfs:\/\/Qm[1-9A-HJ-NP-Za-km-z]{44}$/);
+  });
+
   test('download button triggers file download', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('#input');
