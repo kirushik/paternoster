@@ -24,7 +24,7 @@ X25519 (Curve25519 ECDH) provides 128-bit security with 32-byte keys — the sho
 
 ## Wire Format
 
-Headerless frames — every frame starts with random bytes for optimal steganographic cover.
+Headerless frames — every frame starts with random or variable bytes for optimal steganographic cover.
 
 **Frame structures:**
 
@@ -33,16 +33,16 @@ Headerless frames — every frame starts with random bytes for optimal steganogr
 | MSG | `[seed:6][ciphertext][tag:8]` | **14 bytes** |
 | INTRO | `[eph_pub:32][ciphertext][tag:8]` | **40 bytes** (seedless) |
 | CONTACT | `[pub:32][check:2]` | **34 bytes** |
-| BROADCAST_SIGNED | `[flags:1][x25519_fp:2][compressed][xeddsa_sig:64]` | **67 bytes** |
-| BROADCAST_UNSIGNED | `[flags:1][compressed][check:2]` | **3 bytes** |
+| BROADCAST_SIGNED | `[compressed][flags:1][x25519_fp:2][xeddsa_sig:64]` | **67 bytes** |
+| BROADCAST_UNSIGNED | `[compressed][flags:1][check:2]` | **3 bytes** |
 
 **Frame type detection order (normative):** Implementations MUST try types in this exact sequence. Reordering changes false-accept behavior since earlier stages (AEAD trial decryption, 2^-64) reject far more strongly than later stages (checksum, 2^-16).
 
 1. Trial decryption as MSG (try each contact's key — 2^-64 false positive per key)
 2. Trial decryption as INTRO (first 32 bytes as ephemeral key — 2^-64 false positive)
-3. BROADCAST_SIGNED: flags byte discriminator `(byte[0] & 0x3F) == 0x02` + fingerprint lookup + XEdDSA signature verification via Web Crypto Ed25519
+3. BROADCAST_SIGNED: flags byte discriminator `(byte[len-67] & 0x3F) == 0x02` + fingerprint lookup + XEdDSA signature verification via Web Crypto Ed25519
 4. CONTACT check bytes validation (`bytes[32:34] == SHA256(bytes[0:32] || domain)[0:2]`)
-5. BROADCAST_UNSIGNED: flags byte discriminator `(byte[0] & 0x3F) == 0x03` + SHA-256 truncated checksum
+5. BROADCAST_UNSIGNED: flags byte discriminator `(byte[len-3] & 0x3F) == 0x03` + SHA-256 truncated checksum
 
 AES-GCM's 64-bit tag gives 2^-64 false accept probability per trial decryption attempt — acceptable for manual copy-paste with no decryption oracle (see "64-bit GCM Tag" below).
 
@@ -131,16 +131,19 @@ Bits 5-0: frame discriminator
   0x03 = BROADCAST_UNSIGNED
 ```
 
+Fixed fields are placed at the TAIL so that the variable-length compressed content leads the frame. This prevents repeatable first-token patterns in steganographic output (otherwise the first few stego tokens would be identical across all broadcasts from the same sender).
+
 **BROADCAST_UNSIGNED:**
 ```
-wire = [flags:1][compressed_message:N][check:2]
-check = contactCheckBytes(flags || compressed_message)
+body = [compressed_message:N][flags:1]
+check = contactCheckBytes(body)
+wire = body || check
 ```
 3 bytes overhead. SHA-256 truncated checksum (same algorithm as CONTACT). False positive: ~2^-22 (1/64 discriminator × 1/65536 checksum).
 
 **BROADCAST_SIGNED:**
 ```
-data = [flags:1][x25519_fp:2][compressed_message:N]
+data = [compressed_message:N][flags:1][x25519_fp:2]
 sig  = XEdDSA.sign(x25519_priv, data)
 wire = data || sig
 ```

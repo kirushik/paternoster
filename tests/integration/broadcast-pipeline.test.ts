@@ -78,7 +78,7 @@ describe('empty plaintext broadcast', () => {
     const { payload, compMode } = compress('');
     expect(payload.length).toBe(0);
     const frame = await serializeBroadcastUnsigned(payload, compMode);
-    // Frame is flags(1) + compressed(0) + check(2) = 3 bytes, below MIN_UNSIGNED_SIZE(4)
+    // Frame is compressed(0) + flags(1) + check(2) = 3 bytes, below MIN_UNSIGNED_SIZE(4)
     expect(frame.length).toBe(3);
     const parsed = await tryParseBroadcastUnsigned(frame);
     expect(parsed).toBeNull();

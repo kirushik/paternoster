@@ -1,13 +1,15 @@
 /**
- * Wire format: headerless frames. Every frame starts with random bytes.
+ * Wire format: headerless frames. Every frame starts with random/variable bytes.
  *
  * Frame structures:
- *   MSG:     [seed:6][ciphertext][tag:8]           — seed[0] top 2 bits = comp mode
- *   INTRO:   [eph_pub:32][ciphertext][tag:8]     — no seed; ephemeral ECDH provides uniqueness
- *   CONTACT: [pub:32][check:2]                     — check bytes at the END
+ *   MSG:                [seed:6][ciphertext][tag:8]           — seed[0] top 2 bits = comp mode
+ *   INTRO:              [eph_pub:32][ciphertext][tag:8]       — no seed; ephemeral ECDH provides uniqueness
+ *   CONTACT:            [pub:32][check:2]                     — check bytes at the END
+ *   BROADCAST_UNSIGNED: [compressed:N][flags:1][check:2]      — fixed fields at tail
+ *   BROADCAST_SIGNED:   [compressed:N][flags:1][fp:2][sig:64] — fixed fields at tail
  *
- * Frame type is determined by trial decryption (MSG/INTRO) or check bytes (CONTACT).
- * See docs/crypto.md for full spec.
+ * Frame type is determined by trial decryption (MSG/INTRO), tail flags (broadcasts),
+ * or check bytes (CONTACT). See docs/crypto.md for full spec.
  */
 
 import { concatU8, sha256WithDomain } from './utils';

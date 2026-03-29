@@ -5,10 +5,15 @@
  *   Bits 7-6: compMode (same as MSG seed[0])
  *   Bits 5-0: frame discriminator
  *
- * BROADCAST_UNSIGNED (0x03): [flags:1][compressed:N][check:2]
+ * Fixed fields are placed at the TAIL so that the variable-length compressed
+ * content leads the frame. This prevents repeatable first-token patterns in
+ * steganographic output (the first few stego tokens would otherwise be
+ * identical across all broadcasts from the same sender).
+ *
+ * BROADCAST_UNSIGNED (0x03): [compressed:N][flags:1][check:2]
  *   3 bytes overhead.
  *
- * BROADCAST_SIGNED (0x02): [flags:1][x25519_fp:2][compressed:N][xeddsa_sig:64]
+ * BROADCAST_SIGNED (0x02): [compressed:N][flags:1][x25519_fp:2][xeddsa_sig:64]
  *   67 bytes overhead. XEdDSA signature with 2-byte sender fingerprint.
  *   Recipients who have the sender as a contact can verify; others just read.
  */
@@ -44,19 +49,19 @@ export async function pubFingerprint(x25519Pub: Uint8Array): Promise<Uint8Array>
 
 // ── Serialize ────────────────────────────────────────────
 
-/** Serialize unsigned broadcast: [flags:1][compressed:N][check:2]. 3 bytes overhead. */
+/** Serialize unsigned broadcast: [compressed:N][flags:1][check:2]. 3 bytes overhead. */
 export async function serializeBroadcastUnsigned(
   compressed: Uint8Array,
   compMode: number,
 ): Promise<Uint8Array> {
   const flags = packFlags(compMode, BROADCAST_UNSIGNED_TAG);
-  const body = concatU8(new Uint8Array([flags]), compressed);
+  const body = concatU8(compressed, new Uint8Array([flags]));
   const [a, b] = await contactCheckBytes(body);
   return concatU8(body, new Uint8Array([a, b]));
 }
 
 /**
- * Serialize signed broadcast: [flags:1][fp:2][compressed:N][sig:64].
+ * Serialize signed broadcast: [compressed:N][flags:1][fp:2][sig:64].
  * 67 bytes overhead. XEdDSA — signs with X25519 key directly.
  * 2-byte fingerprint for sender identification by recipients who have the contact.
  */
@@ -68,7 +73,7 @@ export async function serializeBroadcastSigned(
 ): Promise<Uint8Array> {
   const flags = packFlags(compMode, BROADCAST_SIGNED_TAG);
   const fp = await pubFingerprint(x25519Pub);
-  const data = concatU8(new Uint8Array([flags]), fp, compressed);
+  const data = concatU8(compressed, new Uint8Array([flags]), fp);
   const signature = await xeddsaSign(x25519Priv, data);
   return concatU8(data, signature);
 }
@@ -90,21 +95,23 @@ export interface BroadcastSigned {
   x25519Pub?: Uint8Array;
 }
 
-const MIN_UNSIGNED_SIZE = 4;  // flags(1) + compressed(1) + check(2)
-const MIN_SIGNED_SIZE = 67;   // flags(1) + fp(2) + compressed(0) + sig(64)
+const MIN_UNSIGNED_SIZE = 4;  // compressed(1) + flags(1) + check(2)
+const MIN_SIGNED_SIZE = 67;   // compressed(0) + flags(1) + fp(2) + sig(64)
 
-/** Try to parse as BROADCAST_UNSIGNED. */
+/** Try to parse as BROADCAST_UNSIGNED. Wire: [compressed:N][flags:1][check:2]. */
 export async function tryParseBroadcastUnsigned(data: Uint8Array): Promise<BroadcastUnsigned | null> {
   if (data.length < MIN_UNSIGNED_SIZE) return null;
-  if (flagsTag(data[0]) !== BROADCAST_UNSIGNED_TAG) return null;
+  const flagsPos = data.length - 3;
+  if (flagsTag(data[flagsPos]) !== BROADCAST_UNSIGNED_TAG) return null;
   const body = data.slice(0, data.length - 2);
   const [a, b] = await contactCheckBytes(body);
   if (data[data.length - 2] !== a || data[data.length - 1] !== b) return null;
-  return { compMode: flagsCompMode(data[0]), compressed: body.slice(1) };
+  return { compMode: flagsCompMode(data[flagsPos]), compressed: body.slice(0, body.length - 1) };
 }
 
 /**
  * Try to parse as BROADCAST_SIGNED.
+ * Wire: [compressed:N][flags:1][fp:2][sig:64]. Flags at tail, 67 bytes from end.
  * Computes fingerprint for each candidate key and checks for a match, then verifies XEdDSA.
  */
 export async function tryParseBroadcastSigned(
@@ -112,14 +119,16 @@ export async function tryParseBroadcastSigned(
   candidateKeys?: Uint8Array[],
 ): Promise<BroadcastSigned | null> {
   if (data.length < MIN_SIGNED_SIZE) return null;
-  if (flagsTag(data[0]) !== BROADCAST_SIGNED_TAG) return null;
+  const flagsPos = data.length - 67;
+  if (flagsTag(data[flagsPos]) !== BROADCAST_SIGNED_TAG) return null;
 
   const signedData = data.slice(0, data.length - 64);
   const signature = data.slice(data.length - 64);
-  const fingerprint = signedData.slice(1, 3);
-  const compressed = signedData.slice(3);
+  // signedData = [compressed:N][flags:1][fp:2]
+  const fingerprint = signedData.slice(signedData.length - 2);
+  const compressed = signedData.slice(0, signedData.length - 3);
 
-  const base = { compMode: flagsCompMode(data[0]), fingerprint, compressed };
+  const base = { compMode: flagsCompMode(data[flagsPos]), fingerprint, compressed };
 
   // Try each candidate key: compute fingerprint, compare, verify signature.
   // Multiple candidates may share the same 2-byte fingerprint (collision-prone),
