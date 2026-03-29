@@ -503,6 +503,24 @@ textarea#input::placeholder {
   opacity: 1;
 }
 
+/* ── CID badge (bottom-left) ─────────────────────── */
+
+.cid-badge {
+  position: fixed;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  font: 0.625rem ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: #8e8e93;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+  user-select: all;
+  max-width: 50vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cid-badge:hover { opacity: 1; }
+
 /* ── Broadcast mode banner ────────────────────────── */
 
 .broadcast-banner {
