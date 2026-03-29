@@ -128,6 +128,7 @@ const THEME_MAX_BYTES: Record<ThemeId, number> = {
   'РОССИЯ': 100,
   'СССР': 100,
   'БУХАЮ': 100,
+  'TRUMP': 100,
   'КИТАЙ': 200,
   'PATER': 200,
   '🙂': 200,

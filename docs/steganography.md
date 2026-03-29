@@ -13,7 +13,7 @@ Each model packs bytes into tokens differently. Higher model numbers = more toke
 | Model | Bits/token | Ratio | How it works | Used by |
 |---|---|---|---|---|
 | 0 | 4 | 2 tokens/byte | Hex digits (identity transform) | hex |
-| 16 | 4 | 2 tokens/byte | Each nibble → one of 16 tokens from tab1/tab2 | РОССИЯ, СССР, БУХАЮ |
+| 16 | 4 | 2 tokens/byte | Each nibble → one of 16 tokens from tab1/tab2 | РОССИЯ, СССР, БУХАЮ, TRUMP |
 | 1024 | 10 | 4 tokens/5 bytes | 10-bit groups from a string of 1024 emoji chars | 🙂 (emoji) |
 | 4096 | 12 | 2 tokens/3 bytes | 12-bit pairs; flat mode (CJK offsets) or structured mode (16 connectors × 256 words) | КИТАЙ (flat), БОЖЕ, PATER (structured) |
 
@@ -70,6 +70,7 @@ Expansion ratios vary by model:
 
 | Theme | Model | Expansion (chars/byte) | Max payload at 50K limit |
 |---|---|---|---|
+| TRUMP | 16 | ~23× | ~2,170 bytes |
 | БУХАЮ | 16 | ~11.8× | ~4,200 bytes |
 | СССР | 16 | ~9.2× | ~5,400 bytes |
 | PATER | 4096 | ~9.1× | ~5,500 bytes |

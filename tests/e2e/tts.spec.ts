@@ -115,6 +115,25 @@ test.describe('TTS functionality', () => {
     expect(lang).toBe('la');
   });
 
+  test('TTS uses English for TRUMP theme', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('#input');
+    await mockVoices(page, ['ru-RU', 'en-US']);
+
+    await page.selectOption('#theme-select', 'TRUMP');
+    await page.fill('#input', 'Test message');
+    await expect(page.locator('#output')).not.toBeEmpty();
+
+    await page.evaluate(() => { (window as any).__ttsLang = null; });
+    await mockSpeak(page, `window.__ttsLang = u.lang;`);
+
+    await page.click('#tts-btn');
+    await page.waitForFunction(() => (window as any).__ttsLang !== null);
+
+    const lang = await page.evaluate(() => (window as any).__ttsLang);
+    expect(lang).toBe('en-US');
+  });
+
   test('TTS uses Chinese for КИТАЙ theme', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('#input');

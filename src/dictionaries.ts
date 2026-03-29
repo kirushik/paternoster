@@ -1,6 +1,6 @@
 /** Theme definitions for steganographic encoding. */
 
-export type ThemeId = 'БОЖЕ' | 'РОССИЯ' | 'СССР' | 'БУХАЮ' | 'КИТАЙ' | 'hex' | 'PATER' | '🙂';
+export type ThemeId = 'БОЖЕ' | 'РОССИЯ' | 'СССР' | 'БУХАЮ' | 'КИТАЙ' | 'hex' | 'PATER' | '🙂' | 'TRUMP';
 
 export interface Theme {
   readonly id: ThemeId;
@@ -126,6 +126,25 @@ const BUKHAYU: Theme = {
   ],
 } as const;
 
+const TRUMP: Theme = {
+  id: 'TRUMP',
+  model: 16,
+  rand: 0.4,
+  lang: 'en-US',
+  tab1: [
+    'FAKE NEWS! ', 'SAD! ', 'MAGA! ', 'WITCH HUNT! ',
+    'BIG WIN! ', 'AMERICA FIRST! ', 'RIGGED! ', 'WINNING! ',
+    'NO COLLUSION! ', 'TOTAL DISASTER! ', 'BELIEVE ME! ', 'THE BEST! ',
+    'HUGE! ', 'PERFECT CALL! ', 'VERY SMART! ', 'GREAT AGAIN! ',
+  ],
+  tab2: [
+    'Tremendous! ', 'Incredible! ', 'Beautiful wall! ', 'So unfair! ',
+    'Terrible! ', 'Amazing! ', 'Disgraceful! ', 'Unbelievable! ',
+    'Very strong! ', 'Crooked Hillary! ', 'Radical Left! ', 'Sleepy Joe! ',
+    'So true! ', 'Many such cases! ', 'Thank you! ', 'Nasty woman! ',
+  ],
+} as const;
+
 const PATER: Theme = {
   id: 'PATER',
   model: 4096,
@@ -221,7 +240,7 @@ const HEX: Theme = {
 } as const;
 
 /** All themes in detection priority order (hex MUST be last). */
-export const THEMES: readonly Theme[] = [KITAY, PATER, BOZHE, BUKHAYU, ROSSIYA, SSSR, EMOJI, HEX] as const;
+export const THEMES: readonly Theme[] = [KITAY, PATER, BOZHE, BUKHAYU, TRUMP, ROSSIYA, SSSR, EMOJI, HEX] as const;
 
 /** Theme lookup by ID. */
 export const THEME_MAP: ReadonlyMap<ThemeId, Theme> = new Map(THEMES.map(t => [t.id, t]));
