@@ -149,6 +149,27 @@ describe('BROADCAST_SIGNED fingerprint collision handling', () => {
   });
 });
 
+describe('BROADCAST_SIGNED verifies all matching candidates (not just first)', () => {
+  it('multiple non-matching candidates do not prevent verification of the real sender', async () => {
+    // This tests the "try ALL candidates" property without needing a fingerprint collision.
+    // We provide several candidate keys alongside the real sender. The parser filters by
+    // fingerprint match internally — non-matching candidates are skipped. The real sender's
+    // fingerprint matches and verification succeeds.
+    const sender = await generateKeyPair();
+    const decoy1 = await generateKeyPair();
+    const decoy2 = await generateKeyPair();
+
+    const compressed = new Uint8Array([0x42, 0x43]);
+    const frame = await serializeBroadcastSigned(compressed, COMP_LITERAL, sender.publicKey, sender.privateKey);
+
+    // Provide decoys before the real sender
+    const parsed = await tryParseBroadcastSigned(frame, [decoy1.publicKey, decoy2.publicKey, sender.publicKey]);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.status).toBe('verified');
+    expect(parsed!.x25519Pub).toEqual(sender.publicKey);
+  });
+});
+
 describe('BROADCAST_SIGNED through stego roundtrip with candidate match', () => {
   it('verifies after stego encode→decode (simulating full handleDecode flow)', async () => {
     const { stegoEncode, stegoDecode } = await import('../../src/stego');

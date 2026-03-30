@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { exportIdentity, importIdentity } from '../../src/identity';
+import { exportIdentity, importIdentity, PBKDF2_ITERATIONS } from '../../src/identity';
 import { generateKeyPair } from '../../src/crypto';
 
 describe('identity export/import', () => {
@@ -39,6 +39,10 @@ describe('identity export/import', () => {
 
   it('throws on too-short blob', async () => {
     await expect(importIdentity('AAAA', passphrase)).rejects.toThrow('Неверный формат');
+  });
+
+  it('PBKDF2 iteration count is pinned at 100k', () => {
+    expect(PBKDF2_ITERATIONS).toBe(100_000);
   });
 
   it('rejects blob with mismatched keypair', async () => {

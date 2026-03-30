@@ -99,6 +99,18 @@ describe('tryParseContact', () => {
   });
 });
 
+describe('CONTACT check bytes are corruption detection, not authentication', () => {
+  it('an attacker can craft a valid CONTACT frame with their own key', async () => {
+    // Eve generates her own keypair and builds a valid CONTACT frame.
+    // This proves check bytes only detect corruption/typos, not MITM substitution.
+    const evePub = crypto.getRandomValues(new Uint8Array(32));
+    const wire = await serializeContact(evePub);
+    const parsed = await tryParseContact(wire);
+    expect(parsed).not.toBeNull();
+    expect(parsed).toEqual(evePub);
+  });
+});
+
 describe('length checks', () => {
   it('couldBeMsg requires minimum 15 bytes (seed:6 + ct:1 + tag:8)', () => {
     expect(couldBeMsg(new Uint8Array(14))).toBe(false);

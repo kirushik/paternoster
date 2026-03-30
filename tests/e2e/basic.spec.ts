@@ -74,6 +74,26 @@ test.describe('basic functionality', () => {
     expect(text).toMatch(/^ipfs:\/\/Qm[1-9A-HJ-NP-Za-km-z]{44}$/);
   });
 
+  test('self-encryption roundtrip: encode then decode own message', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.goto('/');
+    await page.waitForSelector('#input');
+
+    // Type a message (self-encryption is the default when no contact is selected)
+    const plaintext = 'Секретное сообщение самому себе';
+    await page.fill('#input', plaintext);
+    await expect(page.locator('#output')).not.toBeEmpty();
+    const encoded = await page.textContent('#output');
+    expect(encoded).toBeTruthy();
+
+    // Clear and paste the encoded output back
+    await page.fill('#input', '');
+    await page.fill('#input', encoded!);
+
+    // Should decode back to the original plaintext
+    await expect(page.locator('#output')).toHaveText(plaintext, { timeout: 5000 });
+  });
+
   test('download button triggers file download', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('#input');

@@ -191,6 +191,21 @@ describe('malformed signatures', () => {
   });
 });
 
+describe('broadcast signature is publicly verifiable (NOT deniable)', () => {
+  it('a third party with only the public key can verify authorship', async () => {
+    const alice = await generateKeyPair();
+    const data = new TextEncoder().encode('public announcement');
+    const sig = await xeddsaSign(alice.privateKey, data);
+
+    // A third party (no private key) converts the X25519 public key to Edwards
+    // and verifies using only the public key — proving the signature is NOT deniable
+    const edPub = montgomeryToEdwards(alice.publicKey);
+    const pubKey = await crypto.subtle.importKey('raw', edPub, 'Ed25519', false, ['verify']);
+    const thirdPartyCanVerify = await crypto.subtle.verify('Ed25519', pubKey, sig, data);
+    expect(thirdPartyCanVerify).toBe(true);
+  });
+});
+
 describe('montgomeryToEdwards edge cases (degenerate inputs)', () => {
   // Torsion points — not reachable by honest X25519 key generation, but a malicious
   // CONTACT frame could contain them. Must fail gracefully, not crash.

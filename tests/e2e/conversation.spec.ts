@@ -1,6 +1,47 @@
 import { test, expect } from '@playwright/test';
 import { fillDialogAndConfirm, sendMessage, receiveFromKnown } from './helpers';
 
+test.describe('unknown sender message handling', () => {
+  test('INTRO from unknown sender is NOT committed to chat until contact saved', async ({ browser }) => {
+    const aliceCtx = await browser.newContext();
+    await aliceCtx.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const alicePage = await aliceCtx.newPage();
+
+    const bobCtx = await browser.newContext();
+    await bobCtx.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const bobPage = await bobCtx.newPage();
+
+    await alicePage.goto('http://localhost:5199');
+    await bobPage.goto('http://localhost:5199');
+    await alicePage.waitForSelector('#input');
+    await bobPage.waitForSelector('#input');
+
+    // Bob adds Alice via invite token
+    await alicePage.click('[data-id="self"]');
+    const aliceToken = await alicePage.locator('.invite-token').textContent();
+    await bobPage.fill('#input', aliceToken!);
+    await fillDialogAndConfirm(bobPage, { 'Имя контакта': 'Alice' });
+    await expect(bobPage.locator('.contact-pill', { hasText: 'Alice' })).toBeVisible();
+
+    // Bob sends a message to Alice (INTRO)
+    const msg = 'Привет от Боба!';
+    const encoded = await sendMessage(bobPage, msg);
+
+    // Alice pastes the encoded message — unknown sender
+    await alicePage.fill('#input', encoded);
+    await expect(alicePage.locator('#save-contact-btn')).toBeVisible({ timeout: 5000 });
+    await expect(alicePage.locator('#output')).toHaveText(msg);
+
+    // Key assertion: NO chat messages should exist (unknown sender not committed)
+    await expect(alicePage.locator('.chat-message')).toHaveCount(0);
+
+    await alicePage.close();
+    await bobPage.close();
+    await aliceCtx.close();
+    await bobCtx.close();
+  });
+});
+
 test.describe('multi-round conversation', () => {
   test('Alice and Bob exchange keys and have a full back-and-forth conversation', async ({ browser }) => {
     // ── Phase 1: Setup — isolated contexts with separate identities ──

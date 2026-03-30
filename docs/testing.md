@@ -4,11 +4,11 @@ Tests across three layers: unit, integration, and E2E. Tests follow the project'
 
 ## Why Three Layers
 
-**Unit tests** (Vitest, ~195 tests) verify each module in isolation. Fast — full suite runs in <2 seconds. Catches encoding edge cases, compression roundtrips, dictionary validation. Includes property-based tests (`properties.test.ts`) that generate thousands of random inputs per invariant. These are the first thing to break when you change internal logic.
+**Unit tests** (Vitest, ~220 tests) verify each module in isolation. Fast — full suite runs in <2 seconds. Catches encoding edge cases, compression roundtrips, dictionary validation. Includes property-based tests (`properties.test.ts`) that generate thousands of random inputs per invariant. Also includes tests for security-critical crypto properties: ECDH deniability (symmetric shared secret), broadcast signature public verifiability, MSG sender anonymity, seed freshness, PBKDF2 iteration count pinning, CONTACT check byte non-authentication, stego output safety (no invisible/combining characters), and compression non-expansion. These are the first thing to break when you change internal logic.
 
-**Integration tests** (Vitest, ~55 tests) verify the full pipeline: plaintext → compress → encrypt → wire → stego → and back. These catch mismatches between modules (e.g., wire format serialized differently than expected by the decoder, or compression flags not handled by decompressor).
+**Integration tests** (Vitest, ~60 tests) verify the full pipeline: plaintext → compress → encrypt → wire → stego → and back. These catch mismatches between modules (e.g., wire format serialized differently than expected by the decoder, or compression flags not handled by decompressor). Also includes broadcast tail-layout verification (different messages produce different leading bytes).
 
-**E2E tests** (Playwright, 42 tests) verify the actual browser experience. Page loads, key generation persists across reloads, typing produces encoded output, two browser contexts exchange messages with multi-round back-and-forth conversation, invite links work, TTS button calls speechSynthesis with the correct language, every theme roundtrips correctly through two-party encode→decode, and broadcast mode UX (warm background, banner exit, auto-detect of pasted content including P2P auto-switch). These catch DOM wiring bugs and browser API issues that unit tests can't see.
+**E2E tests** (Playwright, 44 tests) verify the actual browser experience. Page loads, key generation persists across reloads, typing produces encoded output, two browser contexts exchange messages with multi-round back-and-forth conversation, invite links work, TTS button calls speechSynthesis with the correct language, every theme roundtrips correctly through two-party encode→decode, broadcast mode UX, self-encryption roundtrip, and unknown-sender message non-commitment to chat. These catch DOM wiring bugs and browser API issues that unit tests can't see.
 
 ## Commands
 
@@ -107,7 +107,7 @@ E2E tests use state-based waits (Playwright auto-retry assertions like `expect(l
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) runs two parallel jobs: unit+integration tests (with coverage) and E2E tests. Playwright browsers are cached by version. Test reports are uploaded as artifacts on failure. See the workflow file for details.
+GitHub Actions (`.github/workflows/ci.yml`) runs two parallel jobs: unit+integration tests (with coverage) and E2E tests. The E2E job also asserts the bundle size stays under 80KB. Playwright browsers are cached by version. Test reports are uploaded as artifacts on failure. See the workflow file for details.
 
 ## Large Message Testing
 

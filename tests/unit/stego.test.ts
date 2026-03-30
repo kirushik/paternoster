@@ -260,6 +260,66 @@ describe('stego handles edge cases', () => {
   });
 });
 
+describe('stego output is non-deterministic', () => {
+  // Model-16 uses random tab1/tab2 switching
+  const model16Themes: ThemeId[] = ['РОССИЯ', 'СССР', 'БУХАЮ', 'TRUMP'];
+  // Model-4096 flat uses random cosmetic spaces
+  const model4096FlatThemes: ThemeId[] = ['КИТАЙ'];
+
+  for (const themeId of [...model16Themes, ...model4096FlatThemes]) {
+    it(`encoding same payload twice through ${themeId} produces varied output`, () => {
+      // КИТАЙ (model-4096 flat) adds spaces with only 5% probability per token,
+      // so use longer payload and more trials to make identical runs negligible.
+      const is4096Flat = model4096FlatThemes.includes(themeId);
+      const input = randomBytes(is4096Flat ? 200 : 20);
+      const trials = is4096Flat ? 30 : 10;
+      const outputs = new Set<string>();
+      for (let i = 0; i < trials; i++) {
+        outputs.add(stegoEncode(input, themeId));
+      }
+      expect(outputs.size).toBeGreaterThanOrEqual(2);
+    });
+  }
+
+  // Model-4096 structured (БОЖЕ, PATER) are deterministic: connectors are derived
+  // from data bits, not randomized. This is correct — the "rand" field in their
+  // theme config is 0, so no tab switching occurs. Non-determinism applies only
+  // to model-16 (tab switching) and model-4096 flat (random cosmetic spaces).
+});
+
+describe('trailing whitespace tolerance for model-16', () => {
+  const model16Themes: ThemeId[] = ['РОССИЯ', 'СССР', 'БУХАЮ', 'TRUMP'];
+
+  for (const themeId of model16Themes) {
+    it(`${themeId} decodes correctly after trimEnd()`, () => {
+      const input = randomBytes(20);
+      const encoded = stegoEncode(input, themeId);
+      const trimmed = encoded.trimEnd();
+      const decoded = stegoDecode(trimmed);
+      expect(decoded).not.toBeNull();
+      expect(decoded!.bytes).toEqual(input);
+    });
+  }
+});
+
+describe('auto-detection null for diverse non-encoded text', () => {
+  const samples = [
+    ['Chinese sentence', '今天天气很好，我们去公园散步吧。这是一个普通的句子。'],
+    ['Latin prayer-like text', 'Lorem ipsum dolor sit amet, consectetur adipiscing elit.'],
+    ['URL', 'https://example.com/path?query=value&foo=bar#section'],
+    ['JSON', '{"name": "Alice", "age": 30, "contacts": ["Bob", "Carol"]}'],
+    ['Python snippet', 'def hello():\n    print("Hello, World!")\n    return 42'],
+    ['emoji-heavy casual text', 'Hey 😊 how are you 🤔 lets go 🎉🎊💃🕺 party tonight!!! 🔥🔥'],
+    ['numbers only', '31415926535897932384626433832795028841971'],
+  ] as const;
+
+  for (const [label, text] of samples) {
+    it(`returns null for ${label}`, () => {
+      expect(stegoDecode(text)).toBeNull();
+    });
+  }
+});
+
 describe('stego decoder robustness (mutation targets)', () => {
   it('hex decoder rejects odd-length hex', () => {
     expect(stegoDecode('ABC')).toBeNull(); // 3 chars = odd
