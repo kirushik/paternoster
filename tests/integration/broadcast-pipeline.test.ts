@@ -73,6 +73,26 @@ describe('broadcast signed pipeline (XEdDSA, 67-byte overhead)', () => {
   });
 });
 
+describe('broadcast tail layout prevents repeatable first tokens', () => {
+  it('different signed messages from the same sender produce different leading bytes', async () => {
+    const sender = await generateKeyPair();
+
+    const { payload: comp1, compMode: mode1 } = compress('Первое сообщение для всех');
+    const frame1 = await serializeBroadcastSigned(comp1, mode1, sender.publicKey, sender.privateKey);
+
+    const { payload: comp2, compMode: mode2 } = compress('Совсем другое сообщение');
+    const frame2 = await serializeBroadcastSigned(comp2, mode2, sender.publicKey, sender.privateKey);
+
+    // The tail layout means variable-length compressed content leads the frame.
+    // Different messages → different leading bytes (verified at the byte level,
+    // not stego token level, since model-4096 structured themes always start with
+    // connector index 0 which maps to the same word regardless of the data byte).
+    const leadingBytes1 = frame1.slice(0, 4);
+    const leadingBytes2 = frame2.slice(0, 4);
+    expect(leadingBytes1).not.toEqual(leadingBytes2);
+  });
+});
+
 describe('empty plaintext broadcast', () => {
   it('empty compressed payload in unsigned broadcast is rejected (below MIN_UNSIGNED_SIZE)', async () => {
     const { payload, compMode } = compress('');

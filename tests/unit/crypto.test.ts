@@ -14,6 +14,8 @@ import {
   decryptIntro,
   directionByte,
   seedCompMode,
+  importPrivateKey,
+  importPublicKey,
   CLASS_MSG,
   CLASS_INTRO,
 } from '../../src/crypto';
@@ -112,6 +114,60 @@ describe('class domain separation', () => {
     await expect(
       decrypt(encrypted, bob.privateKey, alice.publicKey, bob.publicKey, alice.publicKey, CLASS_MSG)
     ).rejects.toThrow();
+  });
+});
+
+describe('ECDH deniability — symmetric shared secret', () => {
+  it('both parties derive the same ECDH shared secret', async () => {
+    const alice = await generateKeyPair();
+    const bob = await generateKeyPair();
+
+    const aliceShared = new Uint8Array(await crypto.subtle.deriveBits(
+      { name: 'X25519', public: await importPublicKey(bob.publicKey) },
+      await importPrivateKey(alice.privateKey), 256,
+    ));
+    const bobShared = new Uint8Array(await crypto.subtle.deriveBits(
+      { name: 'X25519', public: await importPublicKey(alice.publicKey) },
+      await importPrivateKey(bob.privateKey), 256,
+    ));
+
+    // This symmetry is what makes P2P deniable: both parties can compute
+    // the same value, so neither can prove who authored a given ciphertext.
+    expect(aliceShared).toEqual(bobShared);
+  });
+});
+
+describe('MSG frames contain no sender identity', () => {
+  it('sender public key does not appear in the wire frame', async () => {
+    const alice = await generateKeyPair();
+    const bob = await generateKeyPair();
+    const plaintext = new Uint8Array([1, 2, 3, 4, 5]);
+
+    const frame = await encrypt(plaintext, alice.privateKey, bob.publicKey, alice.publicKey, bob.publicKey, CLASS_MSG, 0);
+
+    // Scan for alice's 32-byte public key as a contiguous subsequence
+    const frameHex = Array.from(frame).map(b => b.toString(16).padStart(2, '0')).join('');
+    const alicePubHex = Array.from(alice.publicKey).map(b => b.toString(16).padStart(2, '0')).join('');
+    expect(frameHex).not.toContain(alicePubHex);
+  });
+});
+
+describe('seed freshness — each encrypt produces unique output', () => {
+  it('same plaintext + keys + compMode → different seeds and ciphertexts', async () => {
+    const alice = await generateKeyPair();
+    const bob = await generateKeyPair();
+    const plaintext = new Uint8Array([1, 2, 3]);
+
+    const enc1 = await encrypt(plaintext, alice.privateKey, bob.publicKey, alice.publicKey, bob.publicKey, CLASS_MSG, 0);
+    const enc2 = await encrypt(plaintext, alice.privateKey, bob.publicKey, alice.publicKey, bob.publicKey, CLASS_MSG, 0);
+
+    // Seeds (first 6 bytes) must differ
+    const seed1 = enc1.slice(0, 6);
+    const seed2 = enc2.slice(0, 6);
+    expect(seed1).not.toEqual(seed2);
+
+    // Full ciphertexts must differ
+    expect(enc1).not.toEqual(enc2);
   });
 });
 

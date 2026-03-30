@@ -151,6 +151,46 @@ for (const theme of THEMES) {
   });
 }
 
+// ── Stego output safety properties ──────────────────────────
+
+describe('property: stego output contains no invisible characters', () => {
+  // Forbidden: ZWSP, ZWNJ, ZWJ, word joiner, BOM, soft hyphen
+  const FORBIDDEN_INVISIBLE = /[\u200B\u200C\u200D\u2060\uFEFF\u00AD]/;
+  // Combining diacritical marks ranges
+  const COMBINING_RE = /[\u0300-\u036F\u1AB0-\u1AFF\u1DC0-\u1DFF]/;
+
+  for (const theme of THEMES) {
+    fcTest.prop([fc.uint8Array({ minLength: 1, maxLength: 50 })])(
+      `no invisible or combining chars in ${theme.id} output`,
+      (bytes) => {
+        const encoded = stegoEncode(bytes, theme.id);
+        expect(encoded).not.toMatch(FORBIDDEN_INVISIBLE);
+        expect(encoded).not.toMatch(COMBINING_RE);
+      },
+    );
+  }
+});
+
+describe('property: compression never expands beyond UTF-8', () => {
+  const messageString = fc.array(
+    fc.oneof(
+      fc.integer({ min: 0x20, max: 0x7e }).map(c => String.fromCharCode(c)),
+      fc.integer({ min: 0x0410, max: 0x044F }).map(c => String.fromCharCode(c)),
+      fc.constantFrom('😀', '❤️', '🌧️', '☀️', '🎉'),
+    ),
+    { minLength: 0, maxLength: 300 },
+  ).map(chars => chars.join(''));
+
+  fcTest.prop([messageString])(
+    'compress(text).payload.length <= UTF-8 byte length',
+    (text) => {
+      const { payload } = compress(text);
+      const utf8Size = new TextEncoder().encode(text).length;
+      expect(payload.length).toBeLessThanOrEqual(utf8Size);
+    },
+  );
+});
+
 // ── Wire format roundtrips ──────────────────────────────────
 
 describe('property: wire MSG roundtrip', () => {
