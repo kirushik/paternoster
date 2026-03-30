@@ -16,9 +16,10 @@ test.describe('unknown sender message handling', () => {
     await alicePage.waitForSelector('#input');
     await bobPage.waitForSelector('#input');
 
-    // Bob adds Alice via invite token
+    // Bob adds Alice via invite link token
     await alicePage.click('[data-id="self"]');
-    const aliceToken = await alicePage.locator('.invite-token').textContent();
+    const aliceLink = await alicePage.locator('.invite-link').getAttribute('href');
+    const aliceToken = aliceLink!.split('#')[1];
     await bobPage.fill('#input', aliceToken!);
     await fillDialogAndConfirm(bobPage, { 'Имя контакта': 'Alice' });
     await expect(bobPage.locator('.contact-pill', { hasText: 'Alice' })).toBeVisible();
@@ -62,8 +63,9 @@ test.describe('multi-round conversation', () => {
     // ── Phase 2: Contact exchange — Bob adds Alice via invite token ──
 
     await alicePage.click('[data-id="self"]');
-    await expect(alicePage.locator('.invite-token')).toBeVisible();
-    const aliceToken = await alicePage.locator('.invite-token').textContent();
+    await expect(alicePage.locator('.invite-link')).toBeVisible();
+    const aliceLink = await alicePage.locator('.invite-link').getAttribute('href');
+    const aliceToken = aliceLink!.split('#')[1];
     expect(aliceToken).toBeTruthy();
 
     // Bob pastes Alice's invite token → custom dialog appears

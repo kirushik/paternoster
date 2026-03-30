@@ -18,6 +18,14 @@ export async function fillDialogAndConfirm(
   await dialog.waitFor({ state: 'hidden' });
 }
 
+/** Click "Я" and extract the invite token from the invite link href. */
+export async function getInviteToken(page: Page): Promise<string> {
+  await page.click('[data-id="self"]');
+  await expect(page.locator('.invite-link')).toBeVisible();
+  const href = await page.locator('.invite-link').getAttribute('href');
+  return href!.split('#')[1];
+}
+
 /** Open the theme picker panel and click the card for the given theme ID. */
 export async function selectTheme(page: Page, themeId: string): Promise<void> {
   await page.click('#theme-trigger');

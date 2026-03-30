@@ -8,11 +8,14 @@ test.describe('contact management', () => {
 
     // Click "Я" pill
     await page.click('[data-id="self"]');
-    await expect(page.locator('.invite-token')).toBeVisible();
 
-    // Should show invite link
+    // Should show invite link (primary, always visible)
     const inviteLink = await page.locator('.invite-link').textContent();
     expect(inviteLink).toContain('#');
+
+    // Open "Другие способы" disclosure to see token
+    await page.click('summary:has-text("Другие способы")');
+    await expect(page.locator('.invite-token')).toBeVisible();
 
     // Should show base64url token
     const inviteToken = await page.locator('.invite-token').textContent();
@@ -108,7 +111,7 @@ test.describe('identity export and import', () => {
 
     // Open "Я" profile
     await page.click('[data-id="self"]');
-    await expect(page.locator('.invite-token')).toBeVisible();
+    await expect(page.locator('.invite-link')).toBeVisible();
 
     // Expand "Дополнительно"
     await page.click('summary:has-text("Дополнительно")');
@@ -143,7 +146,7 @@ test.describe('identity export and import', () => {
     }));
 
     await pageA.click('[data-id="self"]');
-    await expect(pageA.locator('.invite-token')).toBeVisible();
+    await expect(pageA.locator('.invite-link')).toBeVisible();
     await pageA.click('summary:has-text("Дополнительно")');
     await pageA.click('button:has-text("Сохранить профиль")');
     await fillDialogAndConfirm(pageA, {
@@ -171,7 +174,7 @@ test.describe('identity export and import', () => {
     expect(keysBBefore).not.toBe(keysA.pub);
 
     await pageB.click('[data-id="self"]');
-    await expect(pageB.locator('.invite-token')).toBeVisible();
+    await expect(pageB.locator('.invite-link')).toBeVisible();
     const summary = pageB.locator('summary:has-text("Дополнительно")');
     await expect(summary).toBeVisible();
     await summary.click();
@@ -232,19 +235,24 @@ test.describe('contact interaction', () => {
 
     // Enter "Я" mode
     await page.click('[data-id="self"]');
+    // Open "Другие способы" to see stego text
+    await page.click('summary:has-text("Другие способы")');
     await expect(page.locator('.invite-stego')).toBeVisible();
     const stegoOriginal = await page.locator('.invite-stego').textContent();
 
     // Change theme — invite section should re-render, not disappear
     await selectTheme(page, 'КИТАЙ');
+    // Re-open "Другие способы" after theme change re-renders
+    await page.click('summary:has-text("Другие способы")');
     await expect(page.locator('.invite-stego')).toBeVisible();
     const stegoAfter = await page.locator('.invite-stego').textContent();
 
     // Stego text should change (different encoding)
     expect(stegoAfter).not.toBe(stegoOriginal);
 
-    // Invite link and token should still be visible
+    // Invite link should still be visible (always visible, not inside disclosure)
     await expect(page.locator('.invite-link')).toBeVisible();
+    // Token is inside "Другие способы" which is already open
     await expect(page.locator('.invite-token')).toBeVisible();
   });
 });

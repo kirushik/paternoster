@@ -14,10 +14,11 @@ test.describe('two-party message exchange', () => {
     await alicePage.waitForSelector('#input');
     await bobPage.waitForSelector('#input');
 
-    // Step 1: Alice gets her invite token
+    // Step 1: Alice gets her invite token from invite link
     await alicePage.click('[data-id="self"]');
-    await expect(alicePage.locator('.invite-token')).toBeVisible();
-    const aliceToken = await alicePage.locator('.invite-token').textContent();
+    await expect(alicePage.locator('.invite-link')).toBeVisible();
+    const aliceLink = await alicePage.locator('.invite-link').getAttribute('href');
+    const aliceToken = aliceLink!.split('#')[1];
     expect(aliceToken).toBeTruthy();
 
     // Step 2: Bob pastes Alice's token to add her as contact (custom dialog)

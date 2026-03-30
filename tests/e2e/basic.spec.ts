@@ -83,7 +83,7 @@ test.describe('basic functionality', () => {
     // Type a message (self-encryption is the default when no contact is selected)
     const plaintext = 'Секретное сообщение самому себе';
     await page.fill('#input', plaintext);
-    await expect(page.locator('#output')).not.toBeEmpty();
+    await expect(page.locator('#output-mode-label')).toContainText('Зашифровано');
     const encoded = await page.textContent('#output');
     expect(encoded).toBeTruthy();
 

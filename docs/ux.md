@@ -14,6 +14,12 @@ The single-field design eliminates modes entirely. The user types or pastes into
 
 The output always appears in a read-only label below the field. There is no "encrypt" button, no "decrypt" button.
 
+**Contextual placeholder.** The textarea placeholder changes based on state (via `updatePlaceholder()`):
+- No contacts: "Вставьте приглашение, чтобы добавить собеседника"
+- Contact selected: "Сообщение для {name}..."
+- "Я" selected: "Вставьте код, ссылку или сообщение — приложение само поймёт"
+- Broadcast mode: "Введите сообщение для публикации" (set by `render()` template)
+
 ## Broadcast Mode
 
 ### Entering and Exiting
@@ -65,6 +71,8 @@ Messages are stored in `sessionStorage` per contact — they survive page reload
 - **Receiving:** When a message from a known contact is decoded, it is immediately committed to chat, the input auto-clears, and the app switches to the sender's conversation.
 - **Unknown senders:** Messages from unknown senders are NOT committed to chat until the contact is saved.
 
+**Empty chat nudge:** When a contact is selected but has no message history yet, the chat area shows a centered hint: "Напишите сообщение ↑" instead of being hidden. This confirms the user is in the right place.
+
 **No chat for self-encryption:** The "Я" view (self-encryption) does not show chat history. It's a notepad, not a conversation.
 
 **Storage key:** `paternoster_chat_${contactId}` in `sessionStorage`.
@@ -90,7 +98,9 @@ The app makes its internal state visible through three coordinated signals:
    - "Скопировать ссылку" — invite link
    - "Скопировать копию" — identity backup blob
 
-3. **Status bar** — unchanged: target · theme · character count · optional sender info
+3. **Status bar** — shows `для {name} · {theme}` by default. Pipeline compression stats (📝→🔒→📤) are hidden behind hover: the `.pipeline-detail` span has `opacity: 0` by default and `opacity: 1` on `#status:hover`. This keeps the UI clean for casual users while preserving detailed stats for power users.
+
+4. **Post-copy hint** — on the first successful message copy (`copyLabel === 'Скопировать сообщение'`), a one-time hint appears: "Отправьте через любой мессенджер". Fades in/out over 4 seconds. Stored in `localStorage` via `STORAGE.seenCopyHint` — never shown again. Explains the "copy = send" mental model.
 
 ## Theme Picker (Dictionary Selector)
 
@@ -126,24 +136,36 @@ All interactive prompts use native `<dialog>` elements instead of `window.prompt
 
 The `showDialog()` utility returns a Promise that resolves with field values on confirm or `null` on cancel/escape.
 
+## First Visit
+
+On first visit (no contacts and no invite hash in the URL), the app auto-shows the "Мой контакт" view — the invite card with the user's sharing link. This eliminates the "now what?" moment by immediately presenting the primary action: share the link with someone. If the user arrived via an invite link, `checkHashInvite()` handles import first, so the auto-show does not fire.
+
 ## Contact Exchange Flows
 
 ### Sharing your contact
 
-Tap "Я" in the contact strip. The app shows (output label: "Мой контакт"):
-1. **Verification code** — `XXXX XXXX XXXX XXXX` derived from your public key. A convenience code for quick human comparison out-of-band (64 bits of collision resistance, sufficient for honest verification).
+Tap "Я" in the contact strip (or auto-shown on first visit). The app shows (output label: "Мой контакт"):
+1. **Instruction text** — "Отправьте ссылку собеседнику, чтобы начать переписку". Action-oriented, guides the user.
 2. **Invite link** — `https://domain/#base64url_token`. Clicking opens the app and auto-imports the contact. The hash is cleared from URL after import.
-3. **Compact token** — 46-char base64url string (32-byte key + 2 check bytes). Paste-friendly for any channel.
-4. **Themed text** — the contact token encoded as a prayer/slogan/etc. Steganographic sharing.
-5. **Identity backup** (behind "Дополнительно" disclosure) — "Сохранить профиль" exports the keypair as a passphrase-protected string. "Восстановить профиль" imports it back.
+3. **Copy link button** — "📋 Скопировать ссылку". Primary action.
+4. **Share button** — "📤 Поделиться". Only appears when `navigator.share` is available (mobile browsers). Opens native share sheet.
+5. **Other sharing methods** (behind "Другие способы" disclosure):
+   - **Compact token** — 46-char base64url string (32-byte key + 2 check bytes). Paste-friendly.
+   - **Themed text** — the contact token encoded as a prayer/slogan/etc. Steganographic sharing.
+   - **Verification code** — `XXXX XXXX XXXX XXXX` derived from your public key. For out-of-band verification after exchange (64 bits collision resistance).
+6. **Identity backup** (behind "Дополнительно" disclosure) — "Сохранить профиль" exports the keypair as a passphrase-protected string. "Восстановить профиль" imports it back.
+
+The invite link is the primary sharing mechanism and is always visible. The verification code was moved into the disclosure because it's only useful *after* contact exchange, not during initial sharing.
 
 ### Receiving a contact
 
 Three ways in:
-- **Open invite link** → `checkHashInvite()` fires on page load → dialog for name → saved
+- **Open invite link** → `checkHashInvite()` fires on page load → dialog (title: "Новое приглашение", message: "Кто-то поделился с вами контактом. Дайте ему имя:") → saved
 - **Paste themed contact token** in the main field → auto-detected as type 0x20 → dialog for name
 - **Paste base64url token** in the main field → `tryParseInviteToken()` matches → dialog for name
 - **"+" button** → dialog with token/key field + name field, inline validation
+
+After saving a new contact via the dialog, the app shows a post-save hint: "Отправьте сообщение — так собеседник узнает, кто вы". This explains the INTRO mechanism in human terms — the user needs to reply so their identity propagates back to the sender.
 
 ### Key exchange and auto-introduction
 

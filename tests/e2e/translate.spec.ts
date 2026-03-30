@@ -124,7 +124,7 @@ test.describe('Translation functionality', () => {
     await selectTheme(page, 'КИТАЙ');
 
     await page.fill('#input', 'Тест');
-    await expect(page.locator('#output')).not.toBeEmpty();
+    await expect(page.locator('#output-mode-label')).toContainText('Зашифровано');
     const stegoText = await page.textContent('#output');
 
     // Show translation
@@ -229,6 +229,8 @@ test.describe('Translation functionality', () => {
     // Enter "Я" mode with КИТАЙ theme
     await selectTheme(page, 'КИТАЙ');
     await page.click('[data-id="self"]');
+    // Open "Другие способы" to see stego text
+    await page.click('summary:has-text("Другие способы")');
     await expect(page.locator('.invite-stego')).toBeVisible();
 
     // Wait for translate availability check

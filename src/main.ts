@@ -191,6 +191,16 @@ async function init(): Promise<void> {
   // Check URL hash for invite token
   await checkHashInvite();
 
+  // First visit with no contacts: auto-show invite card
+  if (contacts.length === 0 && !location.hash) {
+    selectedContactId = null;
+    setSelectedContactId('');
+    await showOwnContactToken();
+    renderContacts();
+  }
+
+  updatePlaceholder();
+
   // If we have a selected contact, trigger initial encode of empty/demo content
   if (inputEl.value) {
     await processInput();
@@ -552,7 +562,12 @@ function renderChat(): void {
 
   const messages = loadChat(selectedContactId);
   if (messages.length === 0) {
-    chatEl.style.display = 'none';
+    chatEl.style.display = 'block';
+    chatEl.textContent = '';
+    const hint = document.createElement('div');
+    hint.className = 'chat-empty-hint';
+    hint.textContent = 'Напишите сообщение \u2191';
+    chatEl.appendChild(hint);
     return;
   }
 
@@ -667,8 +682,13 @@ function renderPipeline(prefixParts: string[], extra?: string): void {
   statusEl.textContent = '';
 
   if (lastEncodeStats && lastEncodeStats.outputChars > 0) {
-    const prefix = prefixParts.join(' · ') + ' · ';
-    statusEl.appendChild(document.createTextNode(prefix));
+    const parts = [...prefixParts];
+    if (extra) parts.push(extra);
+    statusEl.appendChild(document.createTextNode(parts.join(' · ')));
+
+    const detailSpan = document.createElement('span');
+    detailSpan.className = 'pipeline-detail';
+    detailSpan.appendChild(document.createTextNode(' · '));
 
     for (const seg of formatPipeline(lastEncodeStats)) {
       if (seg.monospace || seg.color) {
@@ -676,17 +696,31 @@ function renderPipeline(prefixParts: string[], extra?: string): void {
         if (seg.monospace) span.style.fontFamily = 'monospace';
         if (seg.color) span.style.color = seg.color;
         span.textContent = seg.text;
-        statusEl.appendChild(span);
+        detailSpan.appendChild(span);
       } else {
-        statusEl.appendChild(document.createTextNode(seg.text));
+        detailSpan.appendChild(document.createTextNode(seg.text));
       }
     }
 
-    if (extra) statusEl.appendChild(document.createTextNode(` · ${extra}`));
+    statusEl.appendChild(detailSpan);
   } else {
     const parts = [...prefixParts];
     if (extra) parts.push(extra);
     statusEl.textContent = parts.join(' · ');
+  }
+}
+
+function updatePlaceholder(): void {
+  if (!inputEl) return;
+  if (broadcastMode) {
+    inputEl.placeholder = 'Введите сообщение для публикации';
+  } else if (contacts.length === 0) {
+    inputEl.placeholder = 'Вставьте приглашение, чтобы добавить собеседника';
+  } else if (selectedContactId) {
+    const name = contacts.find(c => c.id === selectedContactId)?.name ?? '';
+    inputEl.placeholder = `Сообщение для ${name}...`;
+  } else {
+    inputEl.placeholder = 'Вставьте код, ссылку или сообщение — приложение само поймёт';
   }
 }
 
@@ -821,6 +855,7 @@ function wireEvents(): void {
     }
     renderContacts();
     renderChat();
+    updatePlaceholder();
   });
 
   copyBtn.addEventListener('click', handleCopy);
@@ -1260,6 +1295,7 @@ async function handleSavePendingContact(): Promise<void> {
   autoGrow(inputEl);
   clearOutput();
   updateStatus();
+  updatePlaceholder();
 }
 
 async function handleContactToken(publicKey: Uint8Array): Promise<void> {
@@ -1274,8 +1310,8 @@ async function handleContactToken(publicKey: Uint8Array): Promise<void> {
   }
 
   const result = await showDialog({
-    title: 'Новый контакт',
-    message: 'Обнаружен новый контакт.',
+    title: 'Новое приглашение',
+    message: 'Кто-то поделился с вами контактом. Дайте ему имя:',
     fields: [{ name: 'name', type: 'text', placeholder: 'Имя контакта' }],
     confirmLabel: 'Сохранить',
     validate: (values) => {
@@ -1292,11 +1328,17 @@ async function handleContactToken(publicKey: Uint8Array): Promise<void> {
   setSelectedContactId(selectedContactId);
   renderContacts();
   refreshContactCodes();
-  outputEl.textContent = `Контакт «${name}» добавлен`;
+  outputEl.textContent = '';
+  const hintDiv = document.createElement('div');
+  hintDiv.className = 'post-add-hint';
+  hintDiv.textContent = 'Отправьте сообщение — так собеседник узнает, кто вы';
+  outputEl.appendChild(hintDiv);
   setOutputLabel('Контакт добавлен');
   setCopyableText('', '📋 Скопировать');
   inputEl.value = '';
   updateStatus();
+  updatePlaceholder();
+  renderChat();
 }
 
 // tryParseInviteToken and makeInviteToken moved to src/invite.ts
@@ -1319,21 +1361,20 @@ async function showOwnContactToken(): Promise<void> {
   const section = document.createElement('div');
   section.className = 'invite-section';
 
-  const addLabel = (text: string) => {
+  const addLabel = (text: string, parent: HTMLElement = section) => {
     const div = document.createElement('div');
     div.className = 'invite-label';
     div.textContent = text;
-    section.appendChild(div);
+    parent.appendChild(div);
   };
 
-  const ownCode = contactCodes.get(u8hex(myPublicKey));
-  if (ownCode) {
-    const codeDiv = document.createElement('div');
-    codeDiv.className = 'invite-label';
-    codeDiv.textContent = `Ваш код: ${ownCode}`;
-    section.appendChild(codeDiv);
-  }
+  // 1. Action-oriented instruction
+  const instructionDiv = document.createElement('div');
+  instructionDiv.className = 'invite-instruction';
+  instructionDiv.textContent = 'Отправьте ссылку собеседнику, чтобы начать переписку';
+  section.appendChild(instructionDiv);
 
+  // 2. Invite link (primary action)
   addLabel('Ссылка-приглашение:');
 
   const linkEl = document.createElement('a');
@@ -1342,6 +1383,7 @@ async function showOwnContactToken(): Promise<void> {
   linkEl.textContent = inviteLink;
   section.appendChild(linkEl);
 
+  // 3. Copy link button
   const inviteCopyBtn = document.createElement('button');
   inviteCopyBtn.className = 'action-btn invite-copy-btn';
   inviteCopyBtn.textContent = '📋 Скопировать ссылку';
@@ -1352,21 +1394,45 @@ async function showOwnContactToken(): Promise<void> {
   });
   section.appendChild(inviteCopyBtn);
 
-  addLabel('Или код для вставки:');
+  // 4. Web Share API (mobile)
+  if (typeof navigator.share === 'function') {
+    const shareBtn = document.createElement('button');
+    shareBtn.className = 'action-btn invite-copy-btn';
+    shareBtn.textContent = '📤 Поделиться';
+    shareBtn.addEventListener('click', async () => {
+      try { await navigator.share({ url: inviteLink }); } catch { /* user cancelled */ }
+    });
+    section.appendChild(shareBtn);
+  }
+
+  // 5. Alternative sharing methods (disclosure)
+  const altDetails = document.createElement('details');
+  const altSummary = document.createElement('summary');
+  altSummary.textContent = 'Другие способы';
+  altDetails.appendChild(altSummary);
+
+  addLabel('Код для вставки:', altDetails);
 
   const codeEl = document.createElement('code');
   codeEl.className = 'invite-token';
   codeEl.textContent = inviteToken;
-  section.appendChild(codeEl);
+  altDetails.appendChild(codeEl);
 
-  addLabel(`Или в виде «${selectedTheme}»:`);
+  addLabel(`В виде «${selectedTheme}»:`, altDetails);
 
   const stegoDiv = document.createElement('div');
   stegoDiv.className = 'invite-stego';
   stegoDiv.textContent = stegoText;
-  section.appendChild(stegoDiv);
+  altDetails.appendChild(stegoDiv);
 
-  // Profile export/import wrapped in <details>
+  const ownCode = contactCodes.get(u8hex(myPublicKey));
+  if (ownCode) {
+    addLabel(`Код подтверждения: ${ownCode}`, altDetails);
+  }
+
+  section.appendChild(altDetails);
+
+  // 6. Profile export/import wrapped in <details>
   const details = document.createElement('details');
   const summary = document.createElement('summary');
   summary.textContent = 'Дополнительно';
@@ -1431,6 +1497,8 @@ async function handleAddContact(): Promise<void> {
   setSelectedContactId(contact.id);
   renderContacts();
   refreshContactCodes();
+  renderChat();
+  updatePlaceholder();
   processInput();
 }
 
@@ -1454,6 +1522,7 @@ async function handleDeleteContact(contactId: string): Promise<void> {
   }
   renderContacts();
   renderChat();
+  updatePlaceholder();
   processInput();
 }
 
@@ -1548,6 +1617,16 @@ async function handleCopy(): Promise<void> {
   // Visual feedback
   copyBtn.textContent = '✓ Скопировано';
   setTimeout(() => { copyBtn.textContent = copyLabel; }, 1500);
+
+  // One-time hint explaining "copy = send" model
+  if (copyLabel === 'Скопировать сообщение' && !storageGet(STORAGE.seenCopyHint)) {
+    storageSet(STORAGE.seenCopyHint, '1');
+    const hintEl = document.createElement('div');
+    hintEl.className = 'copy-hint';
+    hintEl.textContent = 'Отправьте через любой мессенджер';
+    statusEl.parentElement!.insertBefore(hintEl, statusEl);
+    setTimeout(() => { hintEl.remove(); }, 4000);
+  }
 }
 
 function updateTtsAvailability(): void {

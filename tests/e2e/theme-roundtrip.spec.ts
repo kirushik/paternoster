@@ -23,10 +23,11 @@ test.describe('per-theme roundtrip', () => {
     await alicePage.waitForSelector('#input');
     await bobPage.waitForSelector('#input');
 
-    // Bob adds Alice via invite token
+    // Bob adds Alice via invite link token
     await alicePage.click('[data-id="self"]');
-    await expect(alicePage.locator('.invite-token')).toBeVisible();
-    const aliceToken = await alicePage.locator('.invite-token').textContent();
+    await expect(alicePage.locator('.invite-link')).toBeVisible();
+    const aliceLink = await alicePage.locator('.invite-link').getAttribute('href');
+    const aliceToken = aliceLink!.split('#')[1];
 
     await bobPage.fill('#input', aliceToken!);
     await fillDialogAndConfirm(bobPage, { 'Имя контакта': 'Alice' });

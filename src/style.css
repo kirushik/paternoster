@@ -151,6 +151,12 @@ body {
 .chat-message.flash {
   animation: chat-flash 0.8s ease;
 }
+.chat-empty-hint {
+  text-align: center;
+  color: #c7c7cc;
+  font-size: 0.875rem;
+  padding: 1.5rem 0;
+}
 
 /* ── Text input ────────────────────────────────────── */
 
@@ -439,6 +445,13 @@ textarea#input::placeholder {
   color: #8e8e93;
   text-align: center;
 }
+.pipeline-detail {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.status-bar:hover .pipeline-detail {
+  opacity: 1;
+}
 
 /* ── Error ─────────────────────────────────────────── */
 
@@ -516,6 +529,30 @@ textarea#input::placeholder {
 }
 .invite-section details .action-btn {
   margin-right: 0.5rem;
+}
+.invite-instruction {
+  font-size: 0.875rem;
+  color: #3a3a3c;
+  line-height: 1.4;
+}
+.post-add-hint {
+  font-size: 0.875rem;
+  color: #8e8e93;
+  text-align: center;
+  padding: 1rem 0;
+}
+.copy-hint {
+  font-size: 0.75rem;
+  color: #8e8e93;
+  text-align: center;
+  padding: 0.25rem 0;
+  animation: fadeInOut 4s ease forwards;
+}
+@keyframes fadeInOut {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 /* ── Save contact button ──────────────────────────── */
