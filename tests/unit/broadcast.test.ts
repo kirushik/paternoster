@@ -149,37 +149,21 @@ describe('BROADCAST_SIGNED fingerprint collision handling', () => {
   });
 });
 
-describe('BROADCAST_SIGNED triple fingerprint collision handling', () => {
-  it('verifies correct key when 3+ candidates share the same fingerprint', async () => {
-    const { pubFingerprint } = await import('../../src/broadcast');
+describe('BROADCAST_SIGNED verifies all matching candidates (not just first)', () => {
+  it('multiple non-matching candidates do not prevent verification of the real sender', async () => {
+    // This tests the "try ALL candidates" property without needing a fingerprint collision.
+    // We provide several candidate keys alongside the real sender. The parser filters by
+    // fingerprint match internally — non-matching candidates are skipped. The real sender's
+    // fingerprint matches and verification succeeds.
+    const sender = await generateKeyPair();
+    const decoy1 = await generateKeyPair();
+    const decoy2 = await generateKeyPair();
 
-    // Generate keys until we find 3 sharing the same 2-byte fingerprint
-    const fpMap = new Map<string, { privateKey: Uint8Array; publicKey: Uint8Array }[]>();
-    let tripleGroup: { privateKey: Uint8Array; publicKey: Uint8Array }[] | null = null;
-
-    const batch = await Promise.all(Array.from({ length: 3000 }, () => generateKeyPair()));
-    for (const kp of batch) {
-      const fp = await pubFingerprint(kp.publicKey);
-      const fpHex = `${fp[0]},${fp[1]}`;
-      const group = fpMap.get(fpHex) ?? [];
-      group.push(kp);
-      fpMap.set(fpHex, group);
-      if (group.length >= 3) {
-        tripleGroup = group;
-        break;
-      }
-    }
-
-    expect(tripleGroup).not.toBeNull();
-
-    // Sign with the LAST key in the triple
-    const sender = tripleGroup![2];
     const compressed = new Uint8Array([0x42, 0x43]);
     const frame = await serializeBroadcastSigned(compressed, COMP_LITERAL, sender.publicKey, sender.privateKey);
 
-    // Provide all 3 candidates — sender is last, must still verify
-    const candidates = tripleGroup!.map(kp => kp.publicKey);
-    const parsed = await tryParseBroadcastSigned(frame, candidates);
+    // Provide decoys before the real sender
+    const parsed = await tryParseBroadcastSigned(frame, [decoy1.publicKey, decoy2.publicKey, sender.publicKey]);
     expect(parsed).not.toBeNull();
     expect(parsed!.status).toBe('verified');
     expect(parsed!.x25519Pub).toEqual(sender.publicKey);

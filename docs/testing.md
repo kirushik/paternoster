@@ -107,7 +107,7 @@ E2E tests use state-based waits (Playwright auto-retry assertions like `expect(l
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) runs two parallel jobs: unit+integration tests (with coverage) and E2E tests. The E2E job also asserts the bundle size stays under 40KB. Playwright browsers are cached by version. Test reports are uploaded as artifacts on failure. See the workflow file for details.
+GitHub Actions (`.github/workflows/ci.yml`) runs two parallel jobs: unit+integration tests (with coverage) and E2E tests. The E2E job also asserts the bundle size stays under 80KB. Playwright browsers are cached by version. Test reports are uploaded as artifacts on failure. See the workflow file for details.
 
 ## Large Message Testing
 

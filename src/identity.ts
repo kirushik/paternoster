@@ -10,7 +10,7 @@
 import { concatU8, u8toBase64url, base64urlToU8, u8eq } from './utils';
 import { derivePublicKey } from './crypto';
 
-const PBKDF2_ITERATIONS = 100_000;
+export const PBKDF2_ITERATIONS = 100_000;
 const SALT_LENGTH = 16;
 const IV_LENGTH = 12;
 

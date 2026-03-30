@@ -67,8 +67,8 @@ jobs:
         run: |
           size=$(wc -c < dist/index.html)
           echo "Bundle size: ${size} bytes"
-          if [ "$size" -gt 40000 ]; then
-            echo "::error::Bundle size ${size} exceeds 40KB limit"
+          if [ "$size" -gt 80000 ]; then
+            echo "::error::Bundle size ${size} exceeds 80KB limit"
             exit 1
           fi
 

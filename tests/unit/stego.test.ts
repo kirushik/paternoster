@@ -268,9 +268,13 @@ describe('stego output is non-deterministic', () => {
 
   for (const themeId of [...model16Themes, ...model4096FlatThemes]) {
     it(`encoding same payload twice through ${themeId} produces varied output`, () => {
-      const input = randomBytes(20);
+      // КИТАЙ (model-4096 flat) adds spaces with only 5% probability per token,
+      // so use longer payload and more trials to make identical runs negligible.
+      const is4096Flat = model4096FlatThemes.includes(themeId);
+      const input = randomBytes(is4096Flat ? 200 : 20);
+      const trials = is4096Flat ? 30 : 10;
       const outputs = new Set<string>();
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < trials; i++) {
         outputs.add(stegoEncode(input, themeId));
       }
       expect(outputs.size).toBeGreaterThanOrEqual(2);
