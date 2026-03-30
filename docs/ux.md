@@ -157,6 +157,8 @@ The globe button (🌐) translates the steganographic output using the browser's
 
 **Anti-copy design.** The translation div has `user-select: none`, making it impossible to select with the mouse (even Ctrl+A skips it). The copy button reads `copyableText`, which is only set during encode/decode — the translation text is never in the copy path. Visual distinction (smaller font, gray italic, left border) makes it clear this isn't the message to send.
 
+**Source text.** Translation reads `ttsText` (the stego text), not `outputEl.textContent`. This is critical for the "Я" (self) tab, where `outputEl` contains a rich DOM structure (verification code, invite link, compact token, stego text, buttons). Reading `textContent` would concatenate all of that into garbage. `ttsText` is always set to just the stego portion in both messaging and "Я" mode.
+
 **State clearing.** Translation is cleared on: new input (via `processInputInner`), theme change, and `clearOutput()`. Cached translator instances are disposed on theme change to free resources.
 
 **`lang` attribute.** The output div gets a `lang` attribute matching the theme language on encode, and `lang="ru"` on decode. This is good HTML practice regardless of the translate feature — aids screen readers and browser language detection.

@@ -205,4 +205,48 @@ test.describe('Translation functionality', () => {
     await page.waitForTimeout(100);
     await expect(page.locator('#translate-btn')).toBeHidden();
   });
+
+  test('Translation in "Я" mode translates only stego text, not invite labels', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('#input');
+
+    // Track what text the translator receives
+    await page.evaluate(() => {
+      (window as any).__translatedInput = null;
+      (globalThis as any).Translator = {
+        availability: async () => 'available',
+        create: async () => ({
+          translate: async (text: string) => {
+            (window as any).__translatedInput = text;
+            return 'translated: ' + text;
+          },
+          destroy: () => {},
+        }),
+      };
+    });
+
+    // Enter "Я" mode with КИТАЙ theme
+    await page.selectOption('#theme-select', 'КИТАЙ');
+    await page.click('[data-id="self"]');
+    await expect(page.locator('.invite-stego')).toBeVisible();
+
+    // Wait for translate availability check
+    await expect(page.locator('#translate-btn')).toBeVisible();
+
+    // Get the stego text that should be translated
+    const stegoOnly = await page.locator('.invite-stego').textContent();
+
+    // Click translate
+    await page.click('#translate-btn');
+    await expect(page.locator('#translate-output')).toHaveClass(/visible/);
+
+    // Verify the translator received ONLY the stego text, not the full invite section
+    const translatedInput = await page.evaluate(() => (window as any).__translatedInput);
+    expect(translatedInput).toBe(stegoOnly);
+
+    // Specifically: should NOT contain invite labels or URLs
+    expect(translatedInput).not.toContain('Ваш код');
+    expect(translatedInput).not.toContain('Ссылка');
+    expect(translatedInput).not.toContain('http');
+  });
 });

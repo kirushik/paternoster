@@ -225,4 +225,26 @@ test.describe('contact interaction', () => {
 
     expect(output1).not.toBe(output2);
   });
+
+  test('theme change in "Я" mode re-renders with new theme', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('#input');
+
+    // Enter "Я" mode
+    await page.click('[data-id="self"]');
+    await expect(page.locator('.invite-stego')).toBeVisible();
+    const stegoOriginal = await page.locator('.invite-stego').textContent();
+
+    // Change theme — invite section should re-render, not disappear
+    await page.selectOption('#theme-select', 'КИТАЙ');
+    await expect(page.locator('.invite-stego')).toBeVisible();
+    const stegoAfter = await page.locator('.invite-stego').textContent();
+
+    // Stego text should change (different encoding)
+    expect(stegoAfter).not.toBe(stegoOriginal);
+
+    // Invite link and token should still be visible
+    await expect(page.locator('.invite-link')).toBeVisible();
+    await expect(page.locator('.invite-token')).toBeVisible();
+  });
 });

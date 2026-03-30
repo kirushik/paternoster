@@ -639,7 +639,11 @@ function wireEvents(): void {
     disposeTranslators();
     updateTtsAvailability();
     updateTranslateAvailability();
-    processInput();
+    if (outputEl.querySelector('.invite-section')) {
+      showOwnContactToken();
+    } else {
+      processInput();
+    }
   });
 
   // TTS: check voice availability on init
@@ -1239,6 +1243,7 @@ async function showOwnContactToken(): Promise<void> {
   section.appendChild(details);
 
   outputEl.appendChild(section);
+  outputEl.lang = THEMES.find(t => t.id === selectedTheme)?.lang ?? 'ru-RU';
   setCopyableText(stegoText, 'Скопировать текст');
   ttsText = stegoText;
 
@@ -1446,7 +1451,7 @@ async function handleTranslate(): Promise<void> {
     clearTranslation();
     return;
   }
-  const text = outputEl.textContent || '';
+  const text = ttsText;
   if (!text) return;
 
   const themeAtClick = selectedTheme;

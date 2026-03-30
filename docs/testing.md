@@ -66,7 +66,7 @@ tests/
     ├── large-message.spec.ts  # Large message conversation roundtrip (1)
     ├── broadcast.spec.ts     # Broadcast mode UX (banner, warm background, auto-detect), signed/unsigned, verification, dedup (12)
     ├── tts.spec.ts           # Button behavior, language per theme (5)
-    └── translate.spec.ts     # Translation API: visibility, toggle, alongside display, anti-copy, state clearing (12)
+    └── translate.spec.ts     # Translation API: visibility, toggle, alongside display, anti-copy, state clearing, "Я" mode (13)
 ```
 
 ## Adding Tests
