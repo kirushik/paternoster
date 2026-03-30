@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { fillDialogAndConfirm } from './helpers';
+import { fillDialogAndConfirm, selectTheme } from './helpers';
 
 test.describe('contact management', () => {
   test('"Я" button shows invite link and contact token', async ({ page }) => {
@@ -236,7 +236,7 @@ test.describe('contact interaction', () => {
     const stegoOriginal = await page.locator('.invite-stego').textContent();
 
     // Change theme — invite section should re-render, not disappear
-    await page.selectOption('#theme-select', 'КИТАЙ');
+    await selectTheme(page, 'КИТАЙ');
     await expect(page.locator('.invite-stego')).toBeVisible();
     const stegoAfter = await page.locator('.invite-stego').textContent();
 

@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
-import { fillDialogAndConfirm, sendMessage, receiveFromKnown } from './helpers';
+import { fillDialogAndConfirm, sendMessage, receiveFromKnown, selectTheme } from './helpers';
 
 const ALL_THEMES = ['КИТАЙ', 'PATER', 'БОЖЕ', 'БУХАЮ', 'TRUMP', 'РОССИЯ', 'СССР', '🙂', 'hex'];
 
@@ -57,7 +57,7 @@ test.describe('per-theme roundtrip', () => {
 
   for (const themeId of ALL_THEMES) {
     test(`roundtrip with theme ${themeId}`, async () => {
-      await alicePage.selectOption('#theme-select', themeId);
+      await selectTheme(alicePage, themeId);
 
       const msg = `Тест ${themeId}`;
       const encoded = await sendMessage(alicePage, msg);

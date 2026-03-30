@@ -92,6 +92,28 @@ The app makes its internal state visible through three coordinated signals:
 
 3. **Status bar** — unchanged: target · theme · character count · optional sender info
 
+## Theme Picker (Dictionary Selector)
+
+The theme selector (labeled "Словарь") uses a custom dropdown panel instead of a native `<select>`. This provides rich per-theme information to help users choose an encoding style.
+
+**Trigger button.** A compact button in the `.output-actions` row shows the current theme's icon and name (e.g., "☦ БОЖЕ ▾"). Clicking opens the panel.
+
+**Dropdown panel.** A floating panel with 9 theme cards organized in three groups:
+
+| Group | Label | Themes | Rationale |
+|---|---|---|---|
+| Тексты | Prose | КИТАЙ, PATER, БОЖЕ | Model 4096 themes that produce continuous text |
+| Фразы | Phrases | РОССИЯ, СССР, БУХАЮ, TRUMP | Model 16 themes with cultural slogans |
+| Символы | Symbols | 🙂 (emoji), hex | Non-linguistic output |
+
+Each card shows: icon, theme name, a hardcoded sample snippet (~30 chars), and a color-coded expansion badge (×N — the stego expansion ratio, i.e. output chars per input byte). Green for compact (≤×2), gray for medium (≤×10), orange for verbose (>×10). Sorted by capacity within each group.
+
+**Responsive layout.** Cards use `flex: 1 1 160px` with `flex-wrap`, naturally reflowing into 3 columns on wide screens, 2 on medium, 1 on narrow. On mobile (≤480px), the panel becomes a bottom sheet (`position: fixed; bottom: 0`) with single-column cards.
+
+**Interaction.** Click or Enter/Space selects a theme and closes the panel. Arrow keys navigate between cards. Escape closes without changing. Outside click closes. Selection persists to localStorage.
+
+**Broadcast mode.** The panel adopts warm cream tones (`.broadcast-active .theme-panel`) to match the broadcast UI.
+
 ## Dialog System
 
 All interactive prompts use native `<dialog>` elements instead of `window.prompt()` / `window.confirm()`. This provides:

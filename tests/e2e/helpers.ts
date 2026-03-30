@@ -18,6 +18,12 @@ export async function fillDialogAndConfirm(
   await dialog.waitFor({ state: 'hidden' });
 }
 
+/** Open the theme picker panel and click the card for the given theme ID. */
+export async function selectTheme(page: Page, themeId: string): Promise<void> {
+  await page.click('#theme-trigger');
+  await page.click(`.theme-card[data-theme="${themeId}"]`);
+}
+
 /** Type a message, wait for encoding, click copy (commits to chat), return encoded text. */
 export async function sendMessage(page: Page, text: string): Promise<string> {
   await page.fill('#input', text);

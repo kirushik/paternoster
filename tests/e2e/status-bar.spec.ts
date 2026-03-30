@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { selectTheme } from './helpers';
 
 test.describe('status bar pipeline', () => {
   test.beforeEach(async ({ page }) => {
@@ -62,7 +63,7 @@ test.describe('status bar pipeline', () => {
     const output1 = Number(text1!.match(/📤(\d+)/)![1]);
 
     // Switch theme
-    await page.selectOption('#theme-select', 'КИТАЙ');
+    await selectTheme(page, 'КИТАЙ');
     await expect(page.locator('#output')).not.toBeEmpty();
     // Wait for re-encode to reflect in status
     await expect(page.locator('#status')).toContainText('КИТАЙ');
@@ -93,7 +94,7 @@ test.describe('status bar pipeline', () => {
 
   test('output span has color styling', async ({ page }) => {
     // Use КИТАЙ theme for compact output likely under 280 chars
-    await page.selectOption('#theme-select', 'КИТАЙ');
+    await selectTheme(page, 'КИТАЙ');
     await page.fill('#input', 'Тест');
     await expect(page.locator('#output')).not.toBeEmpty();
 

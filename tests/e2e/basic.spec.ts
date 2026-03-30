@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { selectTheme } from './helpers';
 
 test.describe('basic functionality', () => {
   test('page loads without errors', async ({ page }) => {
@@ -45,7 +46,7 @@ test.describe('basic functionality', () => {
     await expect(page.locator('#output')).not.toBeEmpty();
     const output1 = await page.textContent('#output');
 
-    await page.selectOption('#theme-select', 'РОССИЯ');
+    await selectTheme(page, 'РОССИЯ');
     // Theme change triggers re-encode; wait for output to change
     await expect(page.locator('#output')).not.toHaveText(output1!);
     const output2 = await page.textContent('#output');

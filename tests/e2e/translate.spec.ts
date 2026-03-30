@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { selectTheme } from './helpers';
 
 /** Inject a mock Translator API (Chrome 138+ shape) into the page. */
 async function mockTranslationAPI(
@@ -32,7 +33,7 @@ test.describe('Translation functionality', () => {
     await page.goto('/');
     await page.waitForSelector('#input');
     await mockTranslationAPI(page);
-    await page.selectOption('#theme-select', 'БОЖЕ');
+    await selectTheme(page, 'БОЖЕ');
     await page.waitForTimeout(100);
     await expect(page.locator('#translate-btn')).toBeHidden();
   });
@@ -41,7 +42,7 @@ test.describe('Translation functionality', () => {
     await page.goto('/');
     await page.waitForSelector('#input');
     await mockTranslationAPI(page);
-    await page.selectOption('#theme-select', 'КИТАЙ');
+    await selectTheme(page, 'КИТАЙ');
     await expect(page.locator('#translate-btn')).toBeVisible();
   });
 
@@ -49,7 +50,7 @@ test.describe('Translation functionality', () => {
     await page.goto('/');
     await page.waitForSelector('#input');
     await mockTranslationAPI(page);
-    await page.selectOption('#theme-select', 'TRUMP');
+    await selectTheme(page, 'TRUMP');
     await expect(page.locator('#translate-btn')).toBeVisible();
   });
 
@@ -57,7 +58,7 @@ test.describe('Translation functionality', () => {
     await page.goto('/');
     await page.waitForSelector('#input');
     await mockTranslationAPI(page);
-    await page.selectOption('#theme-select', 'КИТАЙ');
+    await selectTheme(page, 'КИТАЙ');
 
     await page.fill('#input', 'Тест');
     await expect(page.locator('#output')).not.toBeEmpty();
@@ -83,7 +84,7 @@ test.describe('Translation functionality', () => {
     await page.goto('/');
     await page.waitForSelector('#input');
     await mockTranslationAPI(page);
-    await page.selectOption('#theme-select', 'КИТАЙ');
+    await selectTheme(page, 'КИТАЙ');
 
     await page.fill('#input', 'Тест');
     await expect(page.locator('#output')).not.toBeEmpty();
@@ -102,7 +103,7 @@ test.describe('Translation functionality', () => {
     await page.goto('/');
     await page.waitForSelector('#input');
     await mockTranslationAPI(page);
-    await page.selectOption('#theme-select', 'КИТАЙ');
+    await selectTheme(page, 'КИТАЙ');
 
     await page.fill('#input', 'Тест');
     await expect(page.locator('#output')).not.toBeEmpty();
@@ -120,7 +121,7 @@ test.describe('Translation functionality', () => {
     await page.goto('/');
     await page.waitForSelector('#input');
     await mockTranslationAPI(page);
-    await page.selectOption('#theme-select', 'КИТАЙ');
+    await selectTheme(page, 'КИТАЙ');
 
     await page.fill('#input', 'Тест');
     await expect(page.locator('#output')).not.toBeEmpty();
@@ -142,7 +143,7 @@ test.describe('Translation functionality', () => {
     await page.goto('/');
     await page.waitForSelector('#input');
     await mockTranslationAPI(page);
-    await page.selectOption('#theme-select', 'КИТАЙ');
+    await selectTheme(page, 'КИТАЙ');
 
     await page.fill('#input', 'Тест');
     await expect(page.locator('#output')).not.toBeEmpty();
@@ -151,7 +152,7 @@ test.describe('Translation functionality', () => {
     await expect(page.locator('#translate-output')).toHaveClass(/visible/);
 
     // Switch theme
-    await page.selectOption('#theme-select', 'БОЖЕ');
+    await selectTheme(page, 'БОЖЕ');
     await expect(page.locator('#translate-output')).not.toHaveClass(/visible/);
     await expect(page.locator('#translate-btn')).toBeHidden();
   });
@@ -160,7 +161,7 @@ test.describe('Translation functionality', () => {
     await page.goto('/');
     await page.waitForSelector('#input');
     await mockTranslationAPI(page);
-    await page.selectOption('#theme-select', 'КИТАЙ');
+    await selectTheme(page, 'КИТАЙ');
 
     await page.fill('#input', 'Тест');
     await expect(page.locator('#output')).not.toBeEmpty();
@@ -181,7 +182,7 @@ test.describe('Translation functionality', () => {
     await mockTranslationAPI(page, {
       translateFn: `return new Promise(r => setTimeout(() => r('done'), 500))`,
     });
-    await page.selectOption('#theme-select', 'КИТАЙ');
+    await selectTheme(page, 'КИТАЙ');
 
     await page.fill('#input', 'Тест');
     await expect(page.locator('#output')).not.toBeEmpty();
@@ -201,7 +202,7 @@ test.describe('Translation functionality', () => {
     await page.goto('/');
     await page.waitForSelector('#input');
     await mockTranslationAPI(page, { availability: 'unavailable' });
-    await page.selectOption('#theme-select', 'КИТАЙ');
+    await selectTheme(page, 'КИТАЙ');
     await page.waitForTimeout(100);
     await expect(page.locator('#translate-btn')).toBeHidden();
   });
@@ -226,7 +227,7 @@ test.describe('Translation functionality', () => {
     });
 
     // Enter "Я" mode with КИТАЙ theme
-    await page.selectOption('#theme-select', 'КИТАЙ');
+    await selectTheme(page, 'КИТАЙ');
     await page.click('[data-id="self"]');
     await expect(page.locator('.invite-stego')).toBeVisible();
 

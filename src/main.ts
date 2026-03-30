@@ -31,6 +31,35 @@ import { tryParseInviteToken, makeInviteToken } from './invite';
 import { MAX_STEGO_CHARS } from './constants';
 import { type EncodeStats, formatPipeline } from './status-format';
 
+// ── Theme metadata ─────────────────────────────────────
+
+interface ThemeMeta {
+  readonly icon: string;
+  readonly label: string;
+  readonly sample: string;
+  readonly expansion: number;  // chars-out per byte of ciphertext (stego expansion ratio)
+  readonly group: 'texts' | 'phrases' | 'symbols';
+}
+
+const THEME_META: Record<ThemeId, ThemeMeta> = {
+  'КИТАЙ':  { icon: '中', label: 'КИТАЙ', sample: '丿乃乂乄乆丱丼乀乁乊丮乑乕乏…', expansion: 0.7, group: 'texts' },
+  'PATER':  { icon: '✝', label: 'PATER', sample: 'Quod servus et sanctus enim…', expansion: 9.1, group: 'texts' },
+  'БОЖЕ':   { icon: '☦', label: 'БОЖЕ', sample: 'Раб да святой яко Господь убо…', expansion: 8.8, group: 'texts' },
+  'РОССИЯ': { icon: '🇷🇺', label: 'РОССИЯ', sample: '🏆 Так победим! Россия вперёд…', expansion: 7.9, group: 'phrases' },
+  'СССР':   { icon: '☭', label: 'СССР', sample: '🚩 Слава КПСС! Вперёд к…', expansion: 9.2, group: 'phrases' },
+  'БУХАЮ':  { icon: '🍺', label: 'БУХАЮ', sample: 'ну блин ваще ладно короче…', expansion: 11.8, group: 'phrases' },
+  'TRUMP':  { icon: '🇺🇸', label: 'TRUMP', sample: 'INCREDIBLE! SO TRUE! AMAZING!…', expansion: 23, group: 'phrases' },
+  '🙂':     { icon: '🙂', label: 'Эмодзи', sample: '😀🎭🌺🔮🎪🌈🦋🎨🌸…', expansion: 1.6, group: 'symbols' },
+  'hex':    { icon: '0x', label: 'hex', sample: 'a1f3c70e8b2d…', expansion: 2, group: 'symbols' },
+};
+
+const GROUP_ORDER: readonly ('texts' | 'phrases' | 'symbols')[] = ['texts', 'phrases', 'symbols'];
+const GROUP_LABELS: Record<string, string> = {
+  texts: 'Тексты',
+  phrases: 'Фразы',
+  symbols: 'Символы',
+};
+
 // ── State ───────────────────────────────────────────────
 
 let myPrivateKey: Uint8Array;
@@ -62,7 +91,9 @@ let inputEl: HTMLTextAreaElement;
 let outputEl: HTMLDivElement;
 let outputLabelEl: HTMLDivElement;
 let contactsEl: HTMLDivElement;
-let themeSelect: HTMLSelectElement;
+let themeTrigger: HTMLButtonElement;
+let themePanel: HTMLDivElement;
+let themePanelOpen = false;
 let statusEl: HTMLDivElement;
 let copyBtn: HTMLButtonElement;
 let ttsBtn: HTMLButtonElement;
@@ -365,7 +396,16 @@ function render(): void {
       <div id="output" class="output-label"></div>
       <div id="translate-output" class="translate-output"></div>
       <div class="output-actions" id="output-actions">
-        <select id="theme-select" title="Словарь"></select>
+        <div class="theme-picker" id="theme-picker">
+          <button type="button" class="theme-trigger" id="theme-trigger"
+            aria-haspopup="listbox" aria-expanded="false" title="Словарь">
+            <span class="theme-trigger-icon"></span>
+            <span class="theme-trigger-label"></span>
+            <span class="theme-trigger-chevron">▾</span>
+          </button>
+          <div class="theme-panel" id="theme-panel" role="listbox"
+            aria-label="Словарь" hidden></div>
+        </div>
         ${broadcastMode ? `
         <label class="broadcast-sign-check" id="broadcast-sign-label"${!ed25519Supported ? ' title="Подпись недоступна в этом браузере"' : ''}>
           <input type="checkbox" id="broadcast-sign-toggle"${broadcastSigned ? ' checked' : ''}${!ed25519Supported ? ' disabled' : ''}>
@@ -388,7 +428,8 @@ function render(): void {
   outputEl = $('output') as HTMLDivElement;
   outputLabelEl = $('output-mode-label') as HTMLDivElement;
   contactsEl = $('contacts-bar') as HTMLDivElement;
-  themeSelect = $('theme-select') as HTMLSelectElement;
+  themeTrigger = $('theme-trigger') as HTMLButtonElement;
+  themePanel = $('theme-panel') as HTMLDivElement;
   statusEl = $('status') as HTMLDivElement;
   copyBtn = $('copy-btn') as HTMLButtonElement;
   ttsBtn = $('tts-btn') as HTMLButtonElement;
@@ -436,10 +477,68 @@ function renderContacts(): void {
   contactsEl.appendChild(addBtn);
 }
 
+function expansionClass(ratio: number): string {
+  if (ratio <= 2) return 'cap-green';    // compact: ×0.7, ×1.6, ×2
+  if (ratio <= 10) return 'cap-gray';    // medium: ×7.9 – ×9.2
+  return 'cap-orange';                   // verbose: ×11.8, ×23
+}
+
 function renderThemeSelect(): void {
-  themeSelect.innerHTML = THEMES.map(t =>
-    `<option value="${t.id}"${t.id === selectedTheme ? ' selected' : ''}>${t.id}</option>`
-  ).join('');
+  // Update trigger to show current selection
+  const meta = THEME_META[selectedTheme];
+  themeTrigger.querySelector('.theme-trigger-icon')!.textContent = meta.icon;
+  themeTrigger.querySelector('.theme-trigger-label')!.textContent = meta.label;
+
+  // Build grouped panel
+  const grouped = new Map<string, ThemeId[]>();
+  for (const g of GROUP_ORDER) grouped.set(g, []);
+  for (const t of THEMES) {
+    const m = THEME_META[t.id];
+    grouped.get(m.group)!.push(t.id);
+  }
+
+  let html = '';
+  for (const g of GROUP_ORDER) {
+    const ids = grouped.get(g)!;
+    if (!ids.length) continue;
+    html += `<div class="theme-group" role="group" aria-label="${GROUP_LABELS[g]}">`;
+    html += `<div class="theme-group-label">${GROUP_LABELS[g]}</div>`;
+    html += '<div class="theme-group-cards">';
+    for (const id of ids) {
+      const m = THEME_META[id];
+      const sel = id === selectedTheme;
+      html += `<button type="button" class="theme-card" role="option"
+        aria-selected="${sel}" data-theme="${id}" tabindex="${sel ? '0' : '-1'}">
+        <span class="theme-card-icon">${m.icon}</span>
+        <span class="theme-card-body">
+          <span class="theme-card-name">${m.label}</span>
+          <span class="theme-card-sample">${m.sample}</span>
+        </span>
+        <span class="theme-card-capacity ${expansionClass(m.expansion)}">×${m.expansion}</span>
+      </button>`;
+    }
+    html += '</div></div>';
+  }
+  themePanel.innerHTML = html;
+}
+
+function toggleThemePanel(): void {
+  if (themePanelOpen) closeThemePanel();
+  else openThemePanel();
+}
+
+function openThemePanel(): void {
+  themePanelOpen = true;
+  themePanel.hidden = false;
+  themeTrigger.setAttribute('aria-expanded', 'true');
+  const selected = themePanel.querySelector<HTMLElement>('[aria-selected="true"]');
+  selected?.focus();
+}
+
+function closeThemePanel(): void {
+  themePanelOpen = false;
+  themePanel.hidden = true;
+  themeTrigger.setAttribute('aria-expanded', 'false');
 }
 
 function renderChat(): void {
@@ -634,9 +733,20 @@ function wireEvents(): void {
     debounceTimer = setTimeout(() => processInput(), 150);
   });
 
-  themeSelect.addEventListener('change', () => {
-    selectedTheme = themeSelect.value as ThemeId;
+  // Theme picker: open/close panel
+  themeTrigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleThemePanel();
+  });
+
+  // Theme picker: card selection
+  themePanel.addEventListener('click', (e) => {
+    const card = (e.target as Element).closest<HTMLElement>('.theme-card');
+    if (!card) return;
+    selectedTheme = card.dataset.theme as ThemeId;
     storageSet(STORAGE.selectedTheme, selectedTheme);
+    renderThemeSelect();
+    closeThemePanel();
     clearTranslation();
     disposeTranslators();
     updateTtsAvailability();
@@ -647,6 +757,38 @@ function wireEvents(): void {
       processInput();
     }
   });
+
+  // Theme picker: keyboard navigation
+  themePanel.addEventListener('keydown', (e) => {
+    const cards = Array.from(themePanel.querySelectorAll<HTMLElement>('.theme-card'));
+    const focused = document.activeElement as HTMLElement;
+    const idx = cards.indexOf(focused);
+    let next = -1;
+    switch (e.key) {
+      case 'ArrowDown': next = Math.min(idx + 1, cards.length - 1); break;
+      case 'ArrowUp': next = Math.max(idx - 1, 0); break;
+      case 'Home': next = 0; break;
+      case 'End': next = cards.length - 1; break;
+      case 'Escape':
+        closeThemePanel();
+        themeTrigger.focus();
+        e.preventDefault();
+        return;
+      default: return;
+    }
+    if (next >= 0) {
+      cards[next].focus();
+      e.preventDefault();
+    }
+  });
+
+  // Close panel on outside click
+  document.addEventListener('click', () => {
+    if (themePanelOpen) closeThemePanel();
+  });
+
+  // Prevent clicks inside panel from bubbling to the document close handler
+  $('theme-picker').addEventListener('click', (e) => e.stopPropagation());
 
   // TTS: check voice availability on init
   updateTtsAvailability();
