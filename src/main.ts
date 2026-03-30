@@ -7,7 +7,7 @@ import {
 } from './wire';
 import { type ThemeId, THEMES } from './dictionaries';
 import { STORAGE, storageGet, storageSet } from './storage';
-import { u8hex, hexU8, u8eq, concatU8, contactCode } from './utils';
+import { u8hex, hexU8, u8eq, concatU8, contactCode, charCount } from './utils';
 import { initCidDisplay } from './cid';
 import {
   type Contact,
@@ -28,6 +28,7 @@ import { classifyFrame, classifyFrameBroadcastMode, type KnownKey } from './dete
 import { checkEd25519Support } from './sign';
 import { tryParseInviteToken, makeInviteToken } from './invite';
 import { MAX_STEGO_CHARS } from './constants';
+import { type EncodeStats, formatPipeline } from './status-format';
 
 // ── State ───────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ let pendingNewContact: {
   theme: ThemeId;
 } | null = null;
 const contactCodes = new Map<string, string>(); // publicKeyHex → "XXXX XXXX XXXX XXXX"
+let lastEncodeStats: EncodeStats | null = null;
 
 // ── DOM refs ────────────────────────────────────────────
 
@@ -71,6 +73,7 @@ function clearOutput(): void {
   setOutputLabel('');
   setCopyableText('', '📋 Скопировать');
   ttsText = '';
+  lastEncodeStats = null;
 }
 
 async function copyToClipboard(text: string): Promise<void> {
@@ -541,15 +544,38 @@ function setCopyableText(text: string, label: string): void {
   copyBtn.textContent = label;
 }
 
+function renderPipeline(prefixParts: string[], extra?: string): void {
+  statusEl.textContent = '';
+
+  if (lastEncodeStats && lastEncodeStats.outputChars > 0) {
+    const prefix = prefixParts.join(' · ') + ' · ';
+    statusEl.appendChild(document.createTextNode(prefix));
+
+    for (const seg of formatPipeline(lastEncodeStats)) {
+      if (seg.monospace || seg.color) {
+        const span = document.createElement('span');
+        if (seg.monospace) span.style.fontFamily = 'monospace';
+        if (seg.color) span.style.color = seg.color;
+        span.textContent = seg.text;
+        statusEl.appendChild(span);
+      } else {
+        statusEl.appendChild(document.createTextNode(seg.text));
+      }
+    }
+
+    if (extra) statusEl.appendChild(document.createTextNode(` · ${extra}`));
+  } else {
+    const parts = [...prefixParts];
+    if (extra) parts.push(extra);
+    statusEl.textContent = parts.join(' · ');
+  }
+}
+
 function updateStatus(extra?: string): void {
   const contactName = selectedContactId
     ? contacts.find(c => c.id === selectedContactId)?.name ?? '?'
     : 'себя';
-  const outputLen = outputEl.textContent?.length ?? 0;
-  const parts = [`для ${contactName}`, selectedTheme];
-  if (outputLen > 0) parts.push(`${outputLen} символов`);
-  if (extra) parts.push(extra);
-  statusEl.textContent = parts.join(' · ');
+  renderPipeline([`для ${contactName}`, selectedTheme], extra);
 }
 
 function showError(msg: string): void {
@@ -684,6 +710,7 @@ async function processInput(): Promise<void> {
 async function processInputInner(): Promise<void> {
   pendingNewContact = null;
   removeSaveContactBtn();
+  lastEncodeStats = null;
 
   const text = inputEl.value.trim();
   if (!text) {
@@ -759,12 +786,18 @@ async function handleEncode(plaintext: string): Promise<void> {
     }
 
     const stegoText = stegoEncode(wireFrame, selectedTheme);
-    if (stegoText.length > MAX_STEGO_CHARS) {
+    const outputChars = charCount(stegoText);
+    if (outputChars > MAX_STEGO_CHARS) {
       clearOutput();
-      setOutputLabel(`Сообщение слишком длинное (${stegoText.length} символов, максимум ${MAX_STEGO_CHARS})`);
+      setOutputLabel(`Сообщение слишком длинное (${outputChars} символов, максимум ${MAX_STEGO_CHARS})`);
       updateStatus('слишком длинное');
       return;
     }
+    lastEncodeStats = {
+      inputChars: charCount(plaintext),
+      wireBytes: wireFrame.length,
+      outputChars,
+    };
     outputEl.textContent = stegoText;
     setOutputLabel(contact ? 'Зашифровано' : 'Зашифровано для себя');
     setCopyableText(stegoText, 'Скопировать сообщение');
@@ -795,12 +828,18 @@ async function handleBroadcastEncode(plaintext: string): Promise<void> {
     }
 
     const stegoText = stegoEncode(wireFrame, selectedTheme);
-    if (stegoText.length > MAX_STEGO_CHARS) {
+    const outputChars = charCount(stegoText);
+    if (outputChars > MAX_STEGO_CHARS) {
       clearOutput();
-      setOutputLabel(`Сообщение слишком длинное (${stegoText.length} символов, максимум ${MAX_STEGO_CHARS})`);
+      setOutputLabel(`Сообщение слишком длинное (${outputChars} символов, максимум ${MAX_STEGO_CHARS})`);
       updateBroadcastStatus();
       return;
     }
+    lastEncodeStats = {
+      inputChars: charCount(plaintext),
+      wireBytes: wireFrame.length,
+      outputChars,
+    };
     outputEl.textContent = stegoText;
     setCopyableText(stegoText, 'Скопировать публикацию');
     ttsText = stegoText;
@@ -811,10 +850,7 @@ async function handleBroadcastEncode(plaintext: string): Promise<void> {
 }
 
 function updateBroadcastStatus(): void {
-  const outputLen = outputEl.textContent?.length ?? 0;
-  const parts = [broadcastSigned ? 'подписано' : 'без подписи', selectedTheme];
-  if (outputLen > 0) parts.push(`${outputLen} символов`);
-  statusEl.textContent = parts.join(' · ');
+  renderPipeline([broadcastSigned ? 'подписано' : 'без подписи', selectedTheme]);
 }
 
 /**
