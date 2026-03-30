@@ -209,6 +209,28 @@ textarea#input::placeholder {
   min-height: 1.5em;
 }
 
+.translate-output {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: #8e8e93;
+  font-style: italic;
+  word-break: break-word;
+  user-select: none;
+  -webkit-user-select: none;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease;
+  border-left: 2px solid #d1d1d6;
+  padding-left: 0.625rem;
+  margin: 0;
+}
+.translate-output.visible {
+  max-height: 40em;
+  opacity: 1;
+  margin-top: 0.5rem;
+}
+
 .output-actions {
   display: flex;
   gap: 0.5rem;
@@ -246,6 +268,13 @@ textarea#input::placeholder {
 .action-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+.action-btn.translate-on {
+  background: #007aff;
+  color: #fff;
+}
+.action-btn.translate-on:hover {
+  background: #0066d6;
 }
 
 /* ── Status bar ────────────────────────────────────── */

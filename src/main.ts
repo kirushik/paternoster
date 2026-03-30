@@ -21,6 +21,7 @@ import {
   setSelectedContactId,
 } from './contacts';
 import { speak, stopSpeaking, isSpeaking, hasVoiceForLang, onVoicesChanged } from './tts';
+import { hasTranslationAPI, canTranslateFrom, translateText, disposeTranslators } from './translate';
 import { exportIdentity, importIdentity } from './identity';
 import { loadChat, addChatMessage, clearChat, randomChatId } from './chat';
 import { serializeBroadcastSigned, serializeBroadcastUnsigned } from './broadcast';
@@ -44,6 +45,7 @@ let ed25519Supported = false;
 let copyableText = '';
 let copyLabel = '📋 Скопировать';
 let ttsText = '';
+let translationActive = false;
 let pendingNewContact: {
   senderKey: Uint8Array;
   plaintext: string;
@@ -64,11 +66,23 @@ let themeSelect: HTMLSelectElement;
 let statusEl: HTMLDivElement;
 let copyBtn: HTMLButtonElement;
 let ttsBtn: HTMLButtonElement;
+let translateBtn: HTMLButtonElement;
+let translateOutputEl: HTMLDivElement;
 let errorEl: HTMLDivElement;
 
 // ── Helpers ─────────────────────────────────────────────
 
+function clearTranslation(): void {
+  translationActive = false;
+  if (translateOutputEl) {
+    translateOutputEl.textContent = '';
+    translateOutputEl.classList.remove('visible');
+  }
+  translateBtn?.classList.remove('translate-on');
+}
+
 function clearOutput(): void {
+  clearTranslation();
   outputEl.textContent = '';
   setOutputLabel('');
   setCopyableText('', '📋 Скопировать');
@@ -345,6 +359,7 @@ function render(): void {
     <div class="output-area">
       <div id="output-mode-label" class="output-mode-label"></div>
       <div id="output" class="output-label"></div>
+      <div id="translate-output" class="translate-output"></div>
       <div class="output-actions" id="output-actions">
         <select id="theme-select" title="Словарь"></select>
         ${broadcastMode ? `
@@ -354,6 +369,7 @@ function render(): void {
         </label>` : ''}
         <button id="copy-btn" class="action-btn" title="Скопировать">📋 Скопировать</button>
         <button id="tts-btn" class="action-btn" title="Прочитать вслух">🔊</button>
+        <button id="translate-btn" class="action-btn" title="Перевести" style="display:none">🌐</button>
       </div>
     </div>
     <div id="error" class="error"></div>
@@ -374,6 +390,8 @@ function render(): void {
   statusEl = $('status') as HTMLDivElement;
   copyBtn = $('copy-btn') as HTMLButtonElement;
   ttsBtn = $('tts-btn') as HTMLButtonElement;
+  translateBtn = $('translate-btn') as HTMLButtonElement;
+  translateOutputEl = $('translate-output') as HTMLDivElement;
   errorEl = $('error') as HTMLDivElement;
 
   renderContacts();
@@ -617,12 +635,17 @@ function wireEvents(): void {
   themeSelect.addEventListener('change', () => {
     selectedTheme = themeSelect.value as ThemeId;
     storageSet(STORAGE.selectedTheme, selectedTheme);
+    clearTranslation();
+    disposeTranslators();
     updateTtsAvailability();
+    updateTranslateAvailability();
     processInput();
   });
 
   // TTS: check voice availability on init
   updateTtsAvailability();
+  // Translation: check API availability on init
+  updateTranslateAvailability();
 
   contactsEl.addEventListener('click', async (e) => {
     // Check if × delete button was clicked
@@ -654,6 +677,7 @@ function wireEvents(): void {
 
   copyBtn.addEventListener('click', handleCopy);
   ttsBtn.addEventListener('click', handleTts);
+  translateBtn.addEventListener('click', handleTranslate);
   $('download-btn').addEventListener('click', handleDownload);
 
   $('mode-toggle').addEventListener('click', () => {
@@ -708,6 +732,7 @@ async function processInput(): Promise<void> {
 }
 
 async function processInputInner(): Promise<void> {
+  clearTranslation();
   pendingNewContact = null;
   removeSaveContactBtn();
   lastEncodeStats = null;
@@ -799,6 +824,7 @@ async function handleEncode(plaintext: string): Promise<void> {
       outputChars,
     };
     outputEl.textContent = stegoText;
+    outputEl.lang = THEMES.find(t => t.id === selectedTheme)?.lang ?? 'ru-RU';
     setOutputLabel(contact ? 'Зашифровано' : 'Зашифровано для себя');
     setCopyableText(stegoText, 'Скопировать сообщение');
     ttsText = stegoText;
@@ -841,6 +867,7 @@ async function handleBroadcastEncode(plaintext: string): Promise<void> {
       outputChars,
     };
     outputEl.textContent = stegoText;
+    outputEl.lang = THEMES.find(t => t.id === selectedTheme)?.lang ?? 'ru-RU';
     setCopyableText(stegoText, 'Скопировать публикацию');
     ttsText = stegoText;
     updateBroadcastStatus();
@@ -890,6 +917,7 @@ async function handleBroadcastModeDecode(bytes: Uint8Array, _theme: ThemeId): Pr
 async function handleDecodedIntro(senderPub: Uint8Array, plaintext: string, _theme: ThemeId): Promise<void> {
   const knownSender = findContactByKey(senderPub);
   outputEl.textContent = plaintext;
+  outputEl.lang = 'ru';
   setCopyableText(plaintext, 'Скопировать текст');
 
   if (knownSender) {
@@ -921,6 +949,7 @@ async function handleDecodedIntro(senderPub: Uint8Array, plaintext: string, _the
 /** Shared logic: process a successfully decoded standard message (plaintext + sender info). */
 function handleDecodedMsg(plaintext: string, senderName: string, contactId: string | undefined, _theme: ThemeId): void {
   outputEl.textContent = plaintext;
+  outputEl.lang = 'ru';
   setCopyableText(plaintext, 'Скопировать текст');
   lastDecodedSender = senderName;
 
@@ -977,6 +1006,7 @@ async function handleDecodedBroadcast(
 ): Promise<void> {
   const knownSender = result.x25519Pub ? findContactByKey(result.x25519Pub) : null;
   outputEl.textContent = plaintext;
+  outputEl.lang = 'ru';
   ttsText = inputEl.value.trim();
   const fpHex = Array.from(result.fingerprint).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
 
@@ -1015,6 +1045,7 @@ async function handleDecodedBroadcast(
 function handleDecodedBroadcastUnsigned(plaintext: string, _theme: ThemeId): void {
   lastDecodedSender = null;
   outputEl.textContent = plaintext;
+  outputEl.lang = 'ru';
   setOutputLabel('Публикация · без подписи');
   setCopyableText(plaintext, 'Скопировать текст');
   ttsText = inputEl.value.trim();
@@ -1395,6 +1426,49 @@ function handleTts(): void {
       clearInterval(check);
     }
   }, 300);
+}
+
+async function updateTranslateAvailability(): Promise<void> {
+  if (!hasTranslationAPI()) { translateBtn.style.display = 'none'; return; }
+  const theme = THEMES.find(t => t.id === selectedTheme);
+  const lang = theme?.lang ?? 'ru-RU';
+  if (lang.startsWith('ru')) { translateBtn.style.display = 'none'; return; }
+  const sourceLang = lang.split('-')[0];
+  const availability = await canTranslateFrom(sourceLang);
+  translateBtn.style.display = availability !== 'unavailable' ? '' : 'none';
+  translateBtn.title = availability === 'downloadable'
+    ? 'Перевести (нужна загрузка модели)'
+    : 'Перевести';
+}
+
+async function handleTranslate(): Promise<void> {
+  if (translationActive) {
+    clearTranslation();
+    return;
+  }
+  const text = outputEl.textContent || '';
+  if (!text) return;
+
+  const themeAtClick = selectedTheme;
+  translateBtn.disabled = true;
+  translateBtn.textContent = '⏳';
+
+  try {
+    const theme = THEMES.find(t => t.id === selectedTheme);
+    const sourceLang = (theme?.lang ?? 'ru-RU').split('-')[0];
+    const translated = await translateText(text, sourceLang);
+    // Guard against stale write if theme changed during async translation
+    if (selectedTheme !== themeAtClick) return;
+    translateOutputEl.textContent = translated;
+    translateOutputEl.classList.add('visible');
+    translationActive = true;
+    translateBtn.classList.add('translate-on');
+  } catch {
+    // Progressive enhancement — silently fail
+  } finally {
+    translateBtn.textContent = '🌐';
+    translateBtn.disabled = false;
+  }
 }
 
 async function handleDownload(): Promise<void> {

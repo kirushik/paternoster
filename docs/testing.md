@@ -8,7 +8,7 @@ Tests across three layers: unit, integration, and E2E. Tests follow the project'
 
 **Integration tests** (Vitest, ~60 tests) verify the full pipeline: plaintext → compress → encrypt → wire → stego → and back. These catch mismatches between modules (e.g., wire format serialized differently than expected by the decoder, or compression flags not handled by decompressor). Also includes broadcast tail-layout verification (different messages produce different leading bytes).
 
-**E2E tests** (Playwright, 44 tests) verify the actual browser experience. Page loads, key generation persists across reloads, typing produces encoded output, two browser contexts exchange messages with multi-round back-and-forth conversation, invite links work, TTS button calls speechSynthesis with the correct language, every theme roundtrips correctly through two-party encode→decode, broadcast mode UX, self-encryption roundtrip, and unknown-sender message non-commitment to chat. These catch DOM wiring bugs and browser API issues that unit tests can't see.
+**E2E tests** (Playwright, 65 tests) verify the actual browser experience. Page loads, key generation persists across reloads, typing produces encoded output, two browser contexts exchange messages with multi-round back-and-forth conversation, invite links work, TTS button calls speechSynthesis with the correct language, every theme roundtrips correctly through two-party encode→decode, broadcast mode UX, self-encryption roundtrip, and unknown-sender message non-commitment to chat. These catch DOM wiring bugs and browser API issues that unit tests can't see.
 
 ## Commands
 
@@ -47,6 +47,7 @@ tests/
 │   ├── crypto.test.ts        # HKDF domain separation, directionByte edge cases, class isolation
 │   ├── detect.test.ts        # Frame classification pipeline: MSG/INTRO/broadcast/contact detection (17)
 │   ├── properties.test.ts    # Property-based tests: random-input roundtrips for all core invariants (21)
+│   ├── translate.test.ts      # Translation API wrapper: feature detection, caching, dispose (9)
 │   └── types.test-d.ts       # Compile-time type tests (Theme, crypto, stego, compress types)
 ├── integration/
 │   ├── pipeline.test.ts      # Full encrypt→stego→decrypt roundtrip per theme, including large messages, empty plaintext (49)
@@ -64,7 +65,8 @@ tests/
     ├── theme-roundtrip.spec.ts   # Per-theme encode→decode roundtrip, all 8 themes (8)
     ├── large-message.spec.ts  # Large message conversation roundtrip (1)
     ├── broadcast.spec.ts     # Broadcast mode UX (banner, warm background, auto-detect), signed/unsigned, verification, dedup (12)
-    └── tts.spec.ts           # Button behavior, language per theme (5)
+    ├── tts.spec.ts           # Button behavior, language per theme (5)
+    └── translate.spec.ts     # Translation API: visibility, toggle, alongside display, anti-copy, state clearing (12)
 ```
 
 ## Adding Tests

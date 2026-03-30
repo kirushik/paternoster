@@ -147,6 +147,20 @@ The speaker button (🔊) reads the steganographic output aloud using the browse
 
 **Chat TTS.** Each chat message bubble has a 🔊 button that reads the ciphertext aloud using the message's theme language. Disabled when no matching voice is available.
 
+## Translation Decoy
+
+The globe button (🌐) translates the steganographic output using the browser's on-device Translation API. The КИТАЙ theme produces real CJK characters (U+4E00–U+5DFF) that individually have meanings, so the "translation" produces an entertaining random word salad — similar in spirit to the gibberish prayers and political slogans.
+
+**Progressive enhancement.** The button only appears when the browser supports the `Translator` API (Chrome 138+, on-device, no data sent to servers) AND the current theme has a non-Russian language. Hidden in Firefox/Safari. Themes that get the button: КИТАЙ (zh-CN), TRUMP (en-US), potentially 🙂 (en) — determined dynamically by `canTranslateFrom()`. PATER (la) is unlikely supported.
+
+**Alongside display.** The translation appears in a separate `#translate-output` div below the stego text, with a slide/fade animation. The stego text is never modified — it stays fully visible and selectable above. The button turns blue (`.translate-on` class) to indicate active state. Click again to hide the translation.
+
+**Anti-copy design.** The translation div has `user-select: none`, making it impossible to select with the mouse (even Ctrl+A skips it). The copy button reads `copyableText`, which is only set during encode/decode — the translation text is never in the copy path. Visual distinction (smaller font, gray italic, left border) makes it clear this isn't the message to send.
+
+**State clearing.** Translation is cleared on: new input (via `processInputInner`), theme change, and `clearOutput()`. Cached translator instances are disposed on theme change to free resources.
+
+**`lang` attribute.** The output div gets a `lang` attribute matching the theme language on encode, and `lang="ru"` on decode. This is good HTML practice regardless of the translate feature — aids screen readers and browser language detection.
+
 ## Terminology
 
 All UI text is Russian. Terms are chosen for clarity and non-technical feel.
