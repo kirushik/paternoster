@@ -357,7 +357,11 @@ function render(): void {
       ? 'Введите сообщение для публикации'
       : 'Вставьте код, ссылку или сообщение — приложение само поймёт'}" rows="4"></textarea>
     <div class="output-area">
-      <div id="output-mode-label" class="output-mode-label"></div>
+      <div class="output-header">
+        <div id="output-mode-label" class="output-mode-label"></div>
+        <button id="tts-btn" class="header-btn" title="Прочитать вслух">🔊</button>
+        <button id="translate-btn" class="header-btn" title="Перевести" style="display:none">🌐</button>
+      </div>
       <div id="output" class="output-label"></div>
       <div id="translate-output" class="translate-output"></div>
       <div class="output-actions" id="output-actions">
@@ -368,8 +372,6 @@ function render(): void {
           Подписанное
         </label>` : ''}
         <button id="copy-btn" class="action-btn" title="Скопировать">📋 Скопировать</button>
-        <button id="tts-btn" class="action-btn" title="Прочитать вслух">🔊</button>
-        <button id="translate-btn" class="action-btn" title="Перевести" style="display:none">🌐</button>
       </div>
     </div>
     <div id="error" class="error"></div>

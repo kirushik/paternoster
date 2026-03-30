@@ -185,11 +185,21 @@ textarea#input::placeholder {
   min-height: 3rem;
 }
 
+.output-header {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-bottom: 0.375rem;
+}
+.output-header:not(:has(.output-mode-label:not(:empty))) {
+  display: none;
+}
 .output-mode-label {
   font-size: 0.75rem;
   color: #8e8e93;
-  margin-bottom: 0.375rem;
   font-weight: 500;
+  flex-grow: 1;
+  min-width: 0;
 }
 .output-mode-label:empty {
   display: none;
@@ -197,6 +207,38 @@ textarea#input::placeholder {
 .output-mode-label.sig-warning {
   color: #c44;
   font-weight: 600;
+}
+
+.header-btn {
+  flex-shrink: 0;
+  padding: 0.125rem 0.375rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.15s;
+  line-height: 1;
+  color: #8e8e93;
+  min-width: 2rem;
+  min-height: 1.5rem;
+}
+.header-btn:hover {
+  background: #e5e5ea;
+}
+.header-btn:active {
+  background: #d1d1d6;
+}
+.header-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.header-btn.translate-on {
+  background: #007aff;
+  color: #fff;
+}
+.header-btn.translate-on:hover {
+  background: #0066d6;
 }
 
 .output-label {
