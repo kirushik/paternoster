@@ -919,6 +919,7 @@ async function processInputInner(): Promise<void> {
   pendingNewContact = null;
   removeSaveContactBtn();
   lastEncodeStats = null;
+  document.body.classList.remove('invite-card-mode');
 
   const text = inputEl.value.trim();
   if (!text) {
@@ -1350,6 +1351,10 @@ async function makeInviteLink(publicKey: Uint8Array): Promise<string> {
 }
 
 async function showOwnContactToken(): Promise<void> {
+  // Stego is behind disclosure — hide TTS/translate via CSS class
+  ttsText = '';
+  document.body.classList.add('invite-card-mode');
+
   const inviteLink = await makeInviteLink(myPublicKey);
   const inviteToken = await makeInviteToken(myPublicKey);
   const tokenBytes = await serializeContact(myPublicKey);
@@ -1455,7 +1460,19 @@ async function showOwnContactToken(): Promise<void> {
   outputEl.appendChild(section);
   outputEl.lang = THEMES.find(t => t.id === selectedTheme)?.lang ?? 'ru-RU';
   setCopyableText(stegoText, 'Скопировать текст');
-  ttsText = stegoText;
+
+  // Toggle TTS/translate when disclosure opens/closes
+  altDetails.addEventListener('toggle', () => {
+    if (altDetails.open) {
+      ttsText = stegoText;
+      document.body.classList.remove('invite-card-mode');
+      updateTtsAvailability();
+      updateTranslateAvailability();
+    } else {
+      ttsText = '';
+      document.body.classList.add('invite-card-mode');
+    }
+  });
 
   inputEl.value = '';
   updateStatus('мой контакт');

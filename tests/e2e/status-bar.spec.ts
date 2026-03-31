@@ -12,7 +12,6 @@ test.describe('status bar pipeline', () => {
     await expect(page.locator('#output')).not.toBeEmpty();
 
     const status = page.locator('#status');
-    await status.hover();
     await expect(status).toContainText('📝');
     await expect(status).toContainText('🔒');
     await expect(status).toContainText('📤');
@@ -22,7 +21,6 @@ test.describe('status bar pipeline', () => {
     await page.fill('#input', 'Тестовое сообщение');
     await expect(page.locator('#output-mode-label')).toContainText('Зашифровано');
 
-    await page.locator('#status').hover();
     await expect(page.locator('#status')).toContainText('📝');
     const text = await page.locator('#status').textContent();
     // Extract numbers after emoji markers: 📝N → 🔒N → 📤N
@@ -61,7 +59,6 @@ test.describe('status bar pipeline', () => {
     await page.fill('#input', 'Тест');
     await expect(page.locator('#output-mode-label')).toContainText('Зашифровано');
 
-    await page.locator('#status').hover();
     await expect(page.locator('#status')).toContainText('📝');
     const text1 = await page.locator('#status').textContent();
     const input1 = text1!.match(/📝(\d+)/)![1];
@@ -73,7 +70,6 @@ test.describe('status bar pipeline', () => {
     // Wait for re-encode to reflect in status
     await expect(page.locator('#status')).toContainText('КИТАЙ');
 
-    await page.locator('#status').hover();
     const text2 = await page.locator('#status').textContent();
     const input2 = text2!.match(/📝(\d+)/)![1];
     const output2 = Number(text2!.match(/📤(\d+)/)![1]);
@@ -93,7 +89,6 @@ test.describe('status bar pipeline', () => {
     await expect(page.locator('#output')).not.toBeEmpty();
 
     const status = page.locator('#status');
-    await status.hover();
     await expect(status).toContainText('📝');
     await expect(status).toContainText('🔒');
     await expect(status).toContainText('📤');
@@ -105,7 +100,6 @@ test.describe('status bar pipeline', () => {
     await page.fill('#input', 'Тест');
     await expect(page.locator('#output')).not.toBeEmpty();
 
-    await page.locator('#status').hover();
     // The last span in #status should have a color style
     const outputSpan = page.locator('#status span').last();
     await expect(outputSpan).toBeVisible();
@@ -117,7 +111,6 @@ test.describe('status bar pipeline', () => {
     await page.fill('#input', 'Тест');
     await expect(page.locator('#output')).not.toBeEmpty();
 
-    await page.locator('#status').hover();
     // The first span (🔒 wire bytes) should have monospace font — inside .pipeline-detail
     const wireSpan = page.locator('#status .pipeline-detail span').first();
     await expect(wireSpan).toBeVisible();

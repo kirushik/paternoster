@@ -43,6 +43,8 @@ test.describe('Translation functionality', () => {
     await page.waitForSelector('#input');
     await mockTranslationAPI(page);
     await selectTheme(page, 'КИТАЙ');
+    await page.fill('#input', 'Тест');
+    await expect(page.locator('#output-mode-label')).toContainText('Зашифровано');
     await expect(page.locator('#translate-btn')).toBeVisible();
   });
 
@@ -51,6 +53,8 @@ test.describe('Translation functionality', () => {
     await page.waitForSelector('#input');
     await mockTranslationAPI(page);
     await selectTheme(page, 'TRUMP');
+    await page.fill('#input', 'Test');
+    await expect(page.locator('#output-mode-label')).toContainText('Зашифровано');
     await expect(page.locator('#translate-btn')).toBeVisible();
   });
 
@@ -61,7 +65,7 @@ test.describe('Translation functionality', () => {
     await selectTheme(page, 'КИТАЙ');
 
     await page.fill('#input', 'Тест');
-    await expect(page.locator('#output')).not.toBeEmpty();
+    await expect(page.locator('#output-mode-label')).toContainText('Зашифровано');
     const stegoText = await page.textContent('#output');
 
     // Click translate
