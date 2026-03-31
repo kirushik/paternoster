@@ -72,7 +72,9 @@ export function randomHexId(byteLength: number): string {
 
 /** Count Unicode codepoints (not UTF-16 code units). */
 export function charCount(s: string): number {
-  return [...s].length;
+  let count = 0;
+  for (const _ch of s) count++;
+  return count;
 }
 
 /** Compare two Uint8Arrays for equality */

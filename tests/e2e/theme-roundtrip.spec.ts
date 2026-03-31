@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
-import { fillDialogAndConfirm, sendMessage, receiveFromKnown, selectTheme } from './helpers';
+import { fillDialogAndConfirm, getInviteToken, sendMessage, receiveFromKnown, selectTheme } from './helpers';
 
 const ALL_THEMES = ['КИТАЙ', 'PATER', 'БОЖЕ', 'БУХАЮ', 'TRUMP', 'РОССИЯ', 'СССР', '🙂', 'hex'];
 
@@ -24,10 +24,7 @@ test.describe('per-theme roundtrip', () => {
     await bobPage.waitForSelector('#input');
 
     // Bob adds Alice via invite link token
-    await alicePage.click('[data-id="self"]');
-    await expect(alicePage.locator('.invite-link')).toBeVisible();
-    const aliceLink = await alicePage.locator('.invite-link').getAttribute('href');
-    const aliceToken = aliceLink!.split('#')[1];
+    const aliceToken = await getInviteToken(alicePage);
 
     await bobPage.fill('#input', aliceToken!);
     await fillDialogAndConfirm(bobPage, { 'Имя контакта': 'Alice' });

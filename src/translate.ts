@@ -57,6 +57,9 @@ export async function canTranslateFrom(sourceLang: string): Promise<TranslatorAv
 
 /** Translate text from `sourceLang` to Russian. Caches translator per language. */
 export async function translateText(text: string, sourceLang: string): Promise<string> {
+  if (!hasTranslationAPI()) {
+    throw new Error('Translator API is not available');
+  }
   let translator = cache.get(sourceLang);
   if (!translator) {
     translator = await globalThis.Translator!.create({

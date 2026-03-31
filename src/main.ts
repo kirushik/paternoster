@@ -549,6 +549,7 @@ function closeThemePanel(): void {
   themePanelOpen = false;
   themePanel.hidden = true;
   themeTrigger.setAttribute('aria-expanded', 'false');
+  themeTrigger.focus();
 }
 
 function renderChat(): void {
@@ -1675,11 +1676,13 @@ function handleTts(): void {
 
 async function updateTranslateAvailability(): Promise<void> {
   if (!hasTranslationAPI()) { translateBtn.style.display = 'none'; return; }
-  const theme = THEMES.find(t => t.id === selectedTheme);
+  const themeAtCall = selectedTheme;
+  const theme = THEMES.find(t => t.id === themeAtCall);
   const lang = theme?.lang ?? 'ru-RU';
   if (lang.startsWith('ru')) { translateBtn.style.display = 'none'; return; }
   const sourceLang = lang.split('-')[0];
   const availability = await canTranslateFrom(sourceLang);
+  if (selectedTheme !== themeAtCall) return; // theme changed during await
   translateBtn.style.display = availability !== 'unavailable' ? '' : 'none';
   translateBtn.title = availability === 'downloadable'
     ? 'Перевести (нужна загрузка модели)'
@@ -1695,6 +1698,7 @@ async function handleTranslate(): Promise<void> {
   if (!text) return;
 
   const themeAtClick = selectedTheme;
+  const textAtClick = text;
   translateBtn.disabled = true;
   translateBtn.textContent = '⏳';
 
@@ -1702,8 +1706,8 @@ async function handleTranslate(): Promise<void> {
     const theme = THEMES.find(t => t.id === selectedTheme);
     const sourceLang = (theme?.lang ?? 'ru-RU').split('-')[0];
     const translated = await translateText(text, sourceLang);
-    // Guard against stale write if theme changed during async translation
-    if (selectedTheme !== themeAtClick) return;
+    // Guard against stale write if theme or text changed during async translation
+    if (selectedTheme !== themeAtClick || ttsText !== textAtClick) return;
     translateOutputEl.textContent = translated;
     translateOutputEl.classList.add('visible');
     translationActive = true;

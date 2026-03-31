@@ -98,7 +98,7 @@ The app makes its internal state visible through three coordinated signals:
    - "Скопировать ссылку" — invite link
    - "Скопировать копию" — identity backup blob
 
-3. **Status bar** — shows `для {name} · {theme}` by default. Pipeline compression stats (📝→🔒→📤) are hidden behind hover: the `.pipeline-detail` span has `opacity: 0` by default and `opacity: 1` on `#status:hover`. This keeps the UI clean for casual users while preserving detailed stats for power users.
+3. **Status bar** — shows `для {name} · {theme}` by default. Pipeline compression stats (📝→🔒→📤) are displayed in a `.pipeline-detail` span at reduced opacity (`opacity: 0.6`), keeping them visually subtle for casual users while still available for power users who look for them.
 
 4. **Post-copy hint** — on the first successful message copy (`copyLabel === 'Скопировать сообщение'`), a one-time hint appears: "Отправьте через любой мессенджер". Fades in/out over 4 seconds. Stored in `localStorage` via `STORAGE.seenCopyHint` — never shown again. Explains the "copy = send" mental model.
 
@@ -116,7 +116,7 @@ The theme selector (labeled "Словарь") uses a custom dropdown panel inste
 | Фразы | Phrases | РОССИЯ, СССР, БУХАЮ, TRUMP | Model 16 themes with cultural slogans |
 | Символы | Symbols | 🙂 (emoji), hex | Non-linguistic output |
 
-Each card shows: icon, theme name, a hardcoded sample snippet (~30 chars), and a color-coded expansion badge (×N — the stego expansion ratio, i.e. output chars per input byte). Green for compact (≤×2), gray for medium (≤×10), orange for verbose (>×10). Sorted by capacity within each group.
+Each card shows: icon, theme name, a hardcoded sample snippet (~30 chars), and a color-coded expansion badge (×N — the stego expansion ratio, i.e. output chars per input byte). Green for compact (≤×2), gray for medium (≤×10), orange for verbose (>×10).
 
 **Responsive layout.** Cards use `flex: 1 1 160px` with `flex-wrap`, naturally reflowing into 3 columns on wide screens, 2 on medium, 1 on narrow. On mobile (≤480px), the panel becomes a bottom sheet (`position: fixed; bottom: 0`) with single-column cards.
 

@@ -12,7 +12,7 @@ export interface PipelineSegment {
   color?: string;
 }
 
-/** Build pipeline segments: ✏N → 🔒N → 📤N */
+/** Build pipeline segments: 📝N → 🔒N → 📤N */
 export function formatPipeline(stats: EncodeStats): PipelineSegment[] {
   const threshold = OUTPUT_THRESHOLDS.find(t => stats.outputChars <= t.limit)
     ?? { color: '#d97706' };
