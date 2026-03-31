@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { selectTheme } from './helpers';
 
 /** Inject fake voices so hasVoiceForLang() returns true for the given languages. */
 async function mockVoices(page: Page, langs: string[]): Promise<void> {
@@ -101,7 +102,7 @@ test.describe('TTS functionality', () => {
     await page.waitForSelector('#input');
     await mockVoices(page, ['ru-RU', 'la']);
 
-    await page.selectOption('#theme-select', 'PATER');
+    await selectTheme(page, 'PATER');
     await page.fill('#input', 'Test message');
     await expect(page.locator('#output')).not.toBeEmpty();
 
@@ -120,7 +121,7 @@ test.describe('TTS functionality', () => {
     await page.waitForSelector('#input');
     await mockVoices(page, ['ru-RU', 'en-US']);
 
-    await page.selectOption('#theme-select', 'TRUMP');
+    await selectTheme(page, 'TRUMP');
     await page.fill('#input', 'Test message');
     await expect(page.locator('#output')).not.toBeEmpty();
 
@@ -139,7 +140,7 @@ test.describe('TTS functionality', () => {
     await page.waitForSelector('#input');
     await mockVoices(page, ['ru-RU', 'zh-CN']);
 
-    await page.selectOption('#theme-select', 'КИТАЙ');
+    await selectTheme(page, 'КИТАЙ');
     await page.fill('#input', 'Test');
     await expect(page.locator('#output')).not.toBeEmpty();
 

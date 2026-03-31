@@ -70,6 +70,13 @@ export function randomHexId(byteLength: number): string {
   return u8hex(crypto.getRandomValues(new Uint8Array(byteLength)));
 }
 
+/** Count Unicode codepoints (not UTF-16 code units). */
+export function charCount(s: string): number {
+  let count = 0;
+  for (const _ch of s) count++;
+  return count;
+}
+
 /** Compare two Uint8Arrays for equality */
 export function u8eq(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;

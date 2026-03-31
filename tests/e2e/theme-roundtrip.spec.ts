@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
-import { fillDialogAndConfirm, sendMessage, receiveFromKnown } from './helpers';
+import { fillDialogAndConfirm, getInviteToken, sendMessage, receiveFromKnown, selectTheme } from './helpers';
 
 const ALL_THEMES = ['КИТАЙ', 'PATER', 'БОЖЕ', 'БУХАЮ', 'TRUMP', 'РОССИЯ', 'СССР', '🙂', 'hex'];
 
@@ -23,10 +23,8 @@ test.describe('per-theme roundtrip', () => {
     await alicePage.waitForSelector('#input');
     await bobPage.waitForSelector('#input');
 
-    // Bob adds Alice via invite token
-    await alicePage.click('[data-id="self"]');
-    await expect(alicePage.locator('.invite-token')).toBeVisible();
-    const aliceToken = await alicePage.locator('.invite-token').textContent();
+    // Bob adds Alice via invite link token
+    const aliceToken = await getInviteToken(alicePage);
 
     await bobPage.fill('#input', aliceToken!);
     await fillDialogAndConfirm(bobPage, { 'Имя контакта': 'Alice' });
@@ -57,7 +55,7 @@ test.describe('per-theme roundtrip', () => {
 
   for (const themeId of ALL_THEMES) {
     test(`roundtrip with theme ${themeId}`, async () => {
-      await alicePage.selectOption('#theme-select', themeId);
+      await selectTheme(alicePage, themeId);
 
       const msg = `Тест ${themeId}`;
       const encoded = await sendMessage(alicePage, msg);

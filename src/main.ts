@@ -7,7 +7,7 @@ import {
 } from './wire';
 import { type ThemeId, THEMES } from './dictionaries';
 import { STORAGE, storageGet, storageSet } from './storage';
-import { u8hex, hexU8, u8eq, concatU8, contactCode } from './utils';
+import { u8hex, hexU8, u8eq, concatU8, contactCode, charCount } from './utils';
 import { initCidDisplay } from './cid';
 import {
   type Contact,
@@ -21,6 +21,7 @@ import {
   setSelectedContactId,
 } from './contacts';
 import { speak, stopSpeaking, isSpeaking, hasVoiceForLang, onVoicesChanged } from './tts';
+import { hasTranslationAPI, canTranslateFrom, translateText, disposeTranslators } from './translate';
 import { exportIdentity, importIdentity } from './identity';
 import { loadChat, addChatMessage, clearChat, randomChatId } from './chat';
 import { serializeBroadcastSigned, serializeBroadcastUnsigned } from './broadcast';
@@ -28,6 +29,36 @@ import { classifyFrame, classifyFrameBroadcastMode, type KnownKey } from './dete
 import { checkEd25519Support } from './sign';
 import { tryParseInviteToken, makeInviteToken } from './invite';
 import { MAX_STEGO_CHARS } from './constants';
+import { type EncodeStats, formatPipeline } from './status-format';
+
+// ── Theme metadata ─────────────────────────────────────
+
+interface ThemeMeta {
+  readonly icon: string;
+  readonly label: string;
+  readonly sample: string;
+  readonly expansion: number;  // chars-out per byte of ciphertext (stego expansion ratio)
+  readonly group: 'texts' | 'phrases' | 'symbols';
+}
+
+const THEME_META: Record<ThemeId, ThemeMeta> = {
+  'КИТАЙ':  { icon: '中', label: 'КИТАЙ', sample: '丿乃乂乄乆丱丼乀乁乊丮乑乕乏…', expansion: 0.7, group: 'texts' },
+  'PATER':  { icon: '✝', label: 'PATER', sample: 'Quod servus et sanctus enim…', expansion: 9.1, group: 'texts' },
+  'БОЖЕ':   { icon: '☦', label: 'БОЖЕ', sample: 'Раб да святой яко Господь убо…', expansion: 8.8, group: 'texts' },
+  'РОССИЯ': { icon: '🇷🇺', label: 'РОССИЯ', sample: '🏆 Так победим! Россия вперёд…', expansion: 7.9, group: 'phrases' },
+  'СССР':   { icon: '☭', label: 'СССР', sample: '🚩 Слава КПСС! Вперёд к…', expansion: 9.2, group: 'phrases' },
+  'БУХАЮ':  { icon: '🍺', label: 'БУХАЮ', sample: 'ну блин ваще ладно короче…', expansion: 11.8, group: 'phrases' },
+  'TRUMP':  { icon: '🇺🇸', label: 'TRUMP', sample: 'INCREDIBLE! SO TRUE! AMAZING!…', expansion: 23, group: 'phrases' },
+  '🙂':     { icon: '🙂', label: 'Эмодзи', sample: '😀🎭🌺🔮🎪🌈🦋🎨🌸…', expansion: 1.6, group: 'symbols' },
+  'hex':    { icon: '0x', label: 'hex', sample: 'a1f3c70e8b2d…', expansion: 2, group: 'symbols' },
+};
+
+const GROUP_ORDER: readonly ('texts' | 'phrases' | 'symbols')[] = ['texts', 'phrases', 'symbols'];
+const GROUP_LABELS: Record<string, string> = {
+  texts: 'Тексты',
+  phrases: 'Фразы',
+  symbols: 'Символы',
+};
 
 // ── State ───────────────────────────────────────────────
 
@@ -43,6 +74,7 @@ let ed25519Supported = false;
 let copyableText = '';
 let copyLabel = '📋 Скопировать';
 let ttsText = '';
+let translationActive = false;
 let pendingNewContact: {
   senderKey: Uint8Array;
   plaintext: string;
@@ -50,6 +82,7 @@ let pendingNewContact: {
   theme: ThemeId;
 } | null = null;
 const contactCodes = new Map<string, string>(); // publicKeyHex → "XXXX XXXX XXXX XXXX"
+let lastEncodeStats: EncodeStats | null = null;
 
 // ── DOM refs ────────────────────────────────────────────
 
@@ -58,19 +91,34 @@ let inputEl: HTMLTextAreaElement;
 let outputEl: HTMLDivElement;
 let outputLabelEl: HTMLDivElement;
 let contactsEl: HTMLDivElement;
-let themeSelect: HTMLSelectElement;
+let themeTrigger: HTMLButtonElement;
+let themePanel: HTMLDivElement;
+let themePanelOpen = false;
 let statusEl: HTMLDivElement;
 let copyBtn: HTMLButtonElement;
 let ttsBtn: HTMLButtonElement;
+let translateBtn: HTMLButtonElement;
+let translateOutputEl: HTMLDivElement;
 let errorEl: HTMLDivElement;
 
 // ── Helpers ─────────────────────────────────────────────
 
+function clearTranslation(): void {
+  translationActive = false;
+  if (translateOutputEl) {
+    translateOutputEl.textContent = '';
+    translateOutputEl.classList.remove('visible');
+  }
+  translateBtn?.classList.remove('translate-on');
+}
+
 function clearOutput(): void {
+  clearTranslation();
   outputEl.textContent = '';
   setOutputLabel('');
   setCopyableText('', '📋 Скопировать');
   ttsText = '';
+  lastEncodeStats = null;
 }
 
 async function copyToClipboard(text: string): Promise<void> {
@@ -142,6 +190,16 @@ async function init(): Promise<void> {
 
   // Check URL hash for invite token
   await checkHashInvite();
+
+  // First visit with no contacts: auto-show invite card
+  if (contacts.length === 0 && !location.hash) {
+    selectedContactId = null;
+    setSelectedContactId('');
+    await showOwnContactToken();
+    renderContacts();
+  }
+
+  updatePlaceholder();
 
   // If we have a selected contact, trigger initial encode of empty/demo content
   if (inputEl.value) {
@@ -340,17 +398,30 @@ function render(): void {
       ? 'Введите сообщение для публикации'
       : 'Вставьте код, ссылку или сообщение — приложение само поймёт'}" rows="4"></textarea>
     <div class="output-area">
-      <div id="output-mode-label" class="output-mode-label"></div>
+      <div class="output-header">
+        <div id="output-mode-label" class="output-mode-label"></div>
+        <button id="tts-btn" class="header-btn" title="Прочитать вслух">🔊</button>
+        <button id="translate-btn" class="header-btn" title="Перевести" style="display:none">🌐</button>
+      </div>
       <div id="output" class="output-label"></div>
+      <div id="translate-output" class="translate-output"></div>
       <div class="output-actions" id="output-actions">
-        <select id="theme-select" title="Словарь"></select>
+        <div class="theme-picker" id="theme-picker">
+          <button type="button" class="theme-trigger" id="theme-trigger"
+            aria-haspopup="listbox" aria-expanded="false" title="Словарь">
+            <span class="theme-trigger-icon"></span>
+            <span class="theme-trigger-label"></span>
+            <span class="theme-trigger-chevron">▾</span>
+          </button>
+          <div class="theme-panel" id="theme-panel" role="listbox"
+            aria-label="Словарь" hidden></div>
+        </div>
         ${broadcastMode ? `
         <label class="broadcast-sign-check" id="broadcast-sign-label"${!ed25519Supported ? ' title="Подпись недоступна в этом браузере"' : ''}>
           <input type="checkbox" id="broadcast-sign-toggle"${broadcastSigned ? ' checked' : ''}${!ed25519Supported ? ' disabled' : ''}>
           Подписанное
         </label>` : ''}
         <button id="copy-btn" class="action-btn" title="Скопировать">📋 Скопировать</button>
-        <button id="tts-btn" class="action-btn" title="Прочитать вслух">🔊</button>
       </div>
     </div>
     <div id="error" class="error"></div>
@@ -367,10 +438,13 @@ function render(): void {
   outputEl = $('output') as HTMLDivElement;
   outputLabelEl = $('output-mode-label') as HTMLDivElement;
   contactsEl = $('contacts-bar') as HTMLDivElement;
-  themeSelect = $('theme-select') as HTMLSelectElement;
+  themeTrigger = $('theme-trigger') as HTMLButtonElement;
+  themePanel = $('theme-panel') as HTMLDivElement;
   statusEl = $('status') as HTMLDivElement;
   copyBtn = $('copy-btn') as HTMLButtonElement;
   ttsBtn = $('tts-btn') as HTMLButtonElement;
+  translateBtn = $('translate-btn') as HTMLButtonElement;
+  translateOutputEl = $('translate-output') as HTMLDivElement;
   errorEl = $('error') as HTMLDivElement;
 
   renderContacts();
@@ -413,10 +487,69 @@ function renderContacts(): void {
   contactsEl.appendChild(addBtn);
 }
 
+function expansionClass(ratio: number): string {
+  if (ratio <= 2) return 'cap-green';    // compact: ×0.7, ×1.6, ×2
+  if (ratio <= 10) return 'cap-gray';    // medium: ×7.9 – ×9.2
+  return 'cap-orange';                   // verbose: ×11.8, ×23
+}
+
 function renderThemeSelect(): void {
-  themeSelect.innerHTML = THEMES.map(t =>
-    `<option value="${t.id}"${t.id === selectedTheme ? ' selected' : ''}>${t.id}</option>`
-  ).join('');
+  // Update trigger to show current selection
+  const meta = THEME_META[selectedTheme];
+  themeTrigger.querySelector('.theme-trigger-icon')!.textContent = meta.icon;
+  themeTrigger.querySelector('.theme-trigger-label')!.textContent = meta.label;
+
+  // Build grouped panel
+  const grouped = new Map<string, ThemeId[]>();
+  for (const g of GROUP_ORDER) grouped.set(g, []);
+  for (const t of THEMES) {
+    const m = THEME_META[t.id];
+    grouped.get(m.group)!.push(t.id);
+  }
+
+  let html = '';
+  for (const g of GROUP_ORDER) {
+    const ids = grouped.get(g)!;
+    if (!ids.length) continue;
+    html += `<div class="theme-group" role="group" aria-label="${GROUP_LABELS[g]}">`;
+    html += `<div class="theme-group-label">${GROUP_LABELS[g]}</div>`;
+    html += '<div class="theme-group-cards">';
+    for (const id of ids) {
+      const m = THEME_META[id];
+      const sel = id === selectedTheme;
+      html += `<button type="button" class="theme-card" role="option"
+        aria-selected="${sel}" data-theme="${id}" tabindex="${sel ? '0' : '-1'}">
+        <span class="theme-card-icon">${m.icon}</span>
+        <span class="theme-card-body">
+          <span class="theme-card-name">${m.label}</span>
+          <span class="theme-card-sample">${m.sample}</span>
+        </span>
+        <span class="theme-card-capacity ${expansionClass(m.expansion)}">×${m.expansion}</span>
+      </button>`;
+    }
+    html += '</div></div>';
+  }
+  themePanel.innerHTML = html;
+}
+
+function toggleThemePanel(): void {
+  if (themePanelOpen) closeThemePanel();
+  else openThemePanel();
+}
+
+function openThemePanel(): void {
+  themePanelOpen = true;
+  themePanel.hidden = false;
+  themeTrigger.setAttribute('aria-expanded', 'true');
+  const selected = themePanel.querySelector<HTMLElement>('[aria-selected="true"]');
+  selected?.focus();
+}
+
+function closeThemePanel(): void {
+  themePanelOpen = false;
+  themePanel.hidden = true;
+  themeTrigger.setAttribute('aria-expanded', 'false');
+  themeTrigger.focus();
 }
 
 function renderChat(): void {
@@ -430,7 +563,12 @@ function renderChat(): void {
 
   const messages = loadChat(selectedContactId);
   if (messages.length === 0) {
-    chatEl.style.display = 'none';
+    chatEl.style.display = 'block';
+    chatEl.textContent = '';
+    const hint = document.createElement('div');
+    hint.className = 'chat-empty-hint';
+    hint.textContent = 'Напишите сообщение \u2191';
+    chatEl.appendChild(hint);
     return;
   }
 
@@ -541,15 +679,57 @@ function setCopyableText(text: string, label: string): void {
   copyBtn.textContent = label;
 }
 
+function renderPipeline(prefixParts: string[], extra?: string): void {
+  statusEl.textContent = '';
+
+  if (lastEncodeStats && lastEncodeStats.outputChars > 0) {
+    const parts = [...prefixParts];
+    if (extra) parts.push(extra);
+    statusEl.appendChild(document.createTextNode(parts.join(' · ')));
+
+    const detailSpan = document.createElement('span');
+    detailSpan.className = 'pipeline-detail';
+    detailSpan.appendChild(document.createTextNode(' · '));
+
+    for (const seg of formatPipeline(lastEncodeStats)) {
+      if (seg.monospace || seg.color) {
+        const span = document.createElement('span');
+        if (seg.monospace) span.style.fontFamily = 'monospace';
+        if (seg.color) span.style.color = seg.color;
+        span.textContent = seg.text;
+        detailSpan.appendChild(span);
+      } else {
+        detailSpan.appendChild(document.createTextNode(seg.text));
+      }
+    }
+
+    statusEl.appendChild(detailSpan);
+  } else {
+    const parts = [...prefixParts];
+    if (extra) parts.push(extra);
+    statusEl.textContent = parts.join(' · ');
+  }
+}
+
+function updatePlaceholder(): void {
+  if (!inputEl) return;
+  if (broadcastMode) {
+    inputEl.placeholder = 'Введите сообщение для публикации';
+  } else if (contacts.length === 0) {
+    inputEl.placeholder = 'Вставьте приглашение, чтобы добавить собеседника';
+  } else if (selectedContactId) {
+    const name = contacts.find(c => c.id === selectedContactId)?.name ?? '';
+    inputEl.placeholder = `Сообщение для ${name}...`;
+  } else {
+    inputEl.placeholder = 'Вставьте код, ссылку или сообщение — приложение само поймёт';
+  }
+}
+
 function updateStatus(extra?: string): void {
   const contactName = selectedContactId
     ? contacts.find(c => c.id === selectedContactId)?.name ?? '?'
     : 'себя';
-  const outputLen = outputEl.textContent?.length ?? 0;
-  const parts = [`для ${contactName}`, selectedTheme];
-  if (outputLen > 0) parts.push(`${outputLen} символов`);
-  if (extra) parts.push(extra);
-  statusEl.textContent = parts.join(' · ');
+  renderPipeline([`для ${contactName}`, selectedTheme], extra);
 }
 
 function showError(msg: string): void {
@@ -588,15 +768,67 @@ function wireEvents(): void {
     debounceTimer = setTimeout(() => processInput(), 150);
   });
 
-  themeSelect.addEventListener('change', () => {
-    selectedTheme = themeSelect.value as ThemeId;
-    storageSet(STORAGE.selectedTheme, selectedTheme);
-    updateTtsAvailability();
-    processInput();
+  // Theme picker: open/close panel
+  themeTrigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleThemePanel();
   });
+
+  // Theme picker: card selection
+  themePanel.addEventListener('click', (e) => {
+    const card = (e.target as Element).closest<HTMLElement>('.theme-card');
+    if (!card) return;
+    selectedTheme = card.dataset.theme as ThemeId;
+    storageSet(STORAGE.selectedTheme, selectedTheme);
+    renderThemeSelect();
+    closeThemePanel();
+    clearTranslation();
+    disposeTranslators();
+    updateTtsAvailability();
+    updateTranslateAvailability();
+    if (outputEl.querySelector('.invite-section')) {
+      showOwnContactToken();
+    } else {
+      processInput();
+    }
+  });
+
+  // Theme picker: keyboard navigation
+  themePanel.addEventListener('keydown', (e) => {
+    const cards = Array.from(themePanel.querySelectorAll<HTMLElement>('.theme-card'));
+    const focused = document.activeElement as HTMLElement;
+    const idx = cards.indexOf(focused);
+    let next = -1;
+    switch (e.key) {
+      case 'ArrowDown': next = Math.min(idx + 1, cards.length - 1); break;
+      case 'ArrowUp': next = Math.max(idx - 1, 0); break;
+      case 'Home': next = 0; break;
+      case 'End': next = cards.length - 1; break;
+      case 'Escape':
+        closeThemePanel();
+        themeTrigger.focus();
+        e.preventDefault();
+        return;
+      default: return;
+    }
+    if (next >= 0) {
+      cards[next].focus();
+      e.preventDefault();
+    }
+  });
+
+  // Close panel on outside click
+  document.addEventListener('click', () => {
+    if (themePanelOpen) closeThemePanel();
+  });
+
+  // Prevent clicks inside panel from bubbling to the document close handler
+  $('theme-picker').addEventListener('click', (e) => e.stopPropagation());
 
   // TTS: check voice availability on init
   updateTtsAvailability();
+  // Translation: check API availability on init
+  updateTranslateAvailability();
 
   contactsEl.addEventListener('click', async (e) => {
     // Check if × delete button was clicked
@@ -624,10 +856,12 @@ function wireEvents(): void {
     }
     renderContacts();
     renderChat();
+    updatePlaceholder();
   });
 
   copyBtn.addEventListener('click', handleCopy);
   ttsBtn.addEventListener('click', handleTts);
+  translateBtn.addEventListener('click', handleTranslate);
   $('download-btn').addEventListener('click', handleDownload);
 
   $('mode-toggle').addEventListener('click', () => {
@@ -682,8 +916,11 @@ async function processInput(): Promise<void> {
 }
 
 async function processInputInner(): Promise<void> {
+  clearTranslation();
   pendingNewContact = null;
   removeSaveContactBtn();
+  lastEncodeStats = null;
+  document.body.classList.remove('invite-card-mode');
 
   const text = inputEl.value.trim();
   if (!text) {
@@ -759,13 +996,20 @@ async function handleEncode(plaintext: string): Promise<void> {
     }
 
     const stegoText = stegoEncode(wireFrame, selectedTheme);
-    if (stegoText.length > MAX_STEGO_CHARS) {
+    const outputChars = charCount(stegoText);
+    if (outputChars > MAX_STEGO_CHARS) {
       clearOutput();
-      setOutputLabel(`Сообщение слишком длинное (${stegoText.length} символов, максимум ${MAX_STEGO_CHARS})`);
+      setOutputLabel(`Сообщение слишком длинное (${outputChars} символов, максимум ${MAX_STEGO_CHARS})`);
       updateStatus('слишком длинное');
       return;
     }
+    lastEncodeStats = {
+      inputChars: charCount(plaintext),
+      wireBytes: wireFrame.length,
+      outputChars,
+    };
     outputEl.textContent = stegoText;
+    outputEl.lang = THEMES.find(t => t.id === selectedTheme)?.lang ?? 'ru-RU';
     setOutputLabel(contact ? 'Зашифровано' : 'Зашифровано для себя');
     setCopyableText(stegoText, 'Скопировать сообщение');
     ttsText = stegoText;
@@ -795,13 +1039,20 @@ async function handleBroadcastEncode(plaintext: string): Promise<void> {
     }
 
     const stegoText = stegoEncode(wireFrame, selectedTheme);
-    if (stegoText.length > MAX_STEGO_CHARS) {
+    const outputChars = charCount(stegoText);
+    if (outputChars > MAX_STEGO_CHARS) {
       clearOutput();
-      setOutputLabel(`Сообщение слишком длинное (${stegoText.length} символов, максимум ${MAX_STEGO_CHARS})`);
+      setOutputLabel(`Сообщение слишком длинное (${outputChars} символов, максимум ${MAX_STEGO_CHARS})`);
       updateBroadcastStatus();
       return;
     }
+    lastEncodeStats = {
+      inputChars: charCount(plaintext),
+      wireBytes: wireFrame.length,
+      outputChars,
+    };
     outputEl.textContent = stegoText;
+    outputEl.lang = THEMES.find(t => t.id === selectedTheme)?.lang ?? 'ru-RU';
     setCopyableText(stegoText, 'Скопировать публикацию');
     ttsText = stegoText;
     updateBroadcastStatus();
@@ -811,10 +1062,7 @@ async function handleBroadcastEncode(plaintext: string): Promise<void> {
 }
 
 function updateBroadcastStatus(): void {
-  const outputLen = outputEl.textContent?.length ?? 0;
-  const parts = [broadcastSigned ? 'подписано' : 'без подписи', selectedTheme];
-  if (outputLen > 0) parts.push(`${outputLen} символов`);
-  statusEl.textContent = parts.join(' · ');
+  renderPipeline([broadcastSigned ? 'подписано' : 'без подписи', selectedTheme]);
 }
 
 /**
@@ -854,6 +1102,7 @@ async function handleBroadcastModeDecode(bytes: Uint8Array, _theme: ThemeId): Pr
 async function handleDecodedIntro(senderPub: Uint8Array, plaintext: string, _theme: ThemeId): Promise<void> {
   const knownSender = findContactByKey(senderPub);
   outputEl.textContent = plaintext;
+  outputEl.lang = 'ru';
   setCopyableText(plaintext, 'Скопировать текст');
 
   if (knownSender) {
@@ -885,6 +1134,7 @@ async function handleDecodedIntro(senderPub: Uint8Array, plaintext: string, _the
 /** Shared logic: process a successfully decoded standard message (plaintext + sender info). */
 function handleDecodedMsg(plaintext: string, senderName: string, contactId: string | undefined, _theme: ThemeId): void {
   outputEl.textContent = plaintext;
+  outputEl.lang = 'ru';
   setCopyableText(plaintext, 'Скопировать текст');
   lastDecodedSender = senderName;
 
@@ -941,6 +1191,7 @@ async function handleDecodedBroadcast(
 ): Promise<void> {
   const knownSender = result.x25519Pub ? findContactByKey(result.x25519Pub) : null;
   outputEl.textContent = plaintext;
+  outputEl.lang = 'ru';
   ttsText = inputEl.value.trim();
   const fpHex = Array.from(result.fingerprint).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
 
@@ -979,6 +1230,7 @@ async function handleDecodedBroadcast(
 function handleDecodedBroadcastUnsigned(plaintext: string, _theme: ThemeId): void {
   lastDecodedSender = null;
   outputEl.textContent = plaintext;
+  outputEl.lang = 'ru';
   setOutputLabel('Публикация · без подписи');
   setCopyableText(plaintext, 'Скопировать текст');
   ttsText = inputEl.value.trim();
@@ -1045,6 +1297,7 @@ async function handleSavePendingContact(): Promise<void> {
   autoGrow(inputEl);
   clearOutput();
   updateStatus();
+  updatePlaceholder();
 }
 
 async function handleContactToken(publicKey: Uint8Array): Promise<void> {
@@ -1059,8 +1312,8 @@ async function handleContactToken(publicKey: Uint8Array): Promise<void> {
   }
 
   const result = await showDialog({
-    title: 'Новый контакт',
-    message: 'Обнаружен новый контакт.',
+    title: 'Новое приглашение',
+    message: 'Кто-то поделился с вами контактом. Дайте ему имя:',
     fields: [{ name: 'name', type: 'text', placeholder: 'Имя контакта' }],
     confirmLabel: 'Сохранить',
     validate: (values) => {
@@ -1077,11 +1330,17 @@ async function handleContactToken(publicKey: Uint8Array): Promise<void> {
   setSelectedContactId(selectedContactId);
   renderContacts();
   refreshContactCodes();
-  outputEl.textContent = `Контакт «${name}» добавлен`;
+  outputEl.textContent = '';
+  const hintDiv = document.createElement('div');
+  hintDiv.className = 'post-add-hint';
+  hintDiv.textContent = 'Отправьте сообщение — так собеседник узнает, кто вы';
+  outputEl.appendChild(hintDiv);
   setOutputLabel('Контакт добавлен');
   setCopyableText('', '📋 Скопировать');
   inputEl.value = '';
   updateStatus();
+  updatePlaceholder();
+  renderChat();
 }
 
 // tryParseInviteToken and makeInviteToken moved to src/invite.ts
@@ -1093,6 +1352,10 @@ async function makeInviteLink(publicKey: Uint8Array): Promise<string> {
 }
 
 async function showOwnContactToken(): Promise<void> {
+  // Stego is behind disclosure — hide TTS/translate via CSS class
+  ttsText = '';
+  document.body.classList.add('invite-card-mode');
+
   const inviteLink = await makeInviteLink(myPublicKey);
   const inviteToken = await makeInviteToken(myPublicKey);
   const tokenBytes = await serializeContact(myPublicKey);
@@ -1104,21 +1367,20 @@ async function showOwnContactToken(): Promise<void> {
   const section = document.createElement('div');
   section.className = 'invite-section';
 
-  const addLabel = (text: string) => {
+  const addLabel = (text: string, parent: HTMLElement = section) => {
     const div = document.createElement('div');
     div.className = 'invite-label';
     div.textContent = text;
-    section.appendChild(div);
+    parent.appendChild(div);
   };
 
-  const ownCode = contactCodes.get(u8hex(myPublicKey));
-  if (ownCode) {
-    const codeDiv = document.createElement('div');
-    codeDiv.className = 'invite-label';
-    codeDiv.textContent = `Ваш код: ${ownCode}`;
-    section.appendChild(codeDiv);
-  }
+  // 1. Action-oriented instruction
+  const instructionDiv = document.createElement('div');
+  instructionDiv.className = 'invite-instruction';
+  instructionDiv.textContent = 'Отправьте ссылку собеседнику, чтобы начать переписку';
+  section.appendChild(instructionDiv);
 
+  // 2. Invite link (primary action)
   addLabel('Ссылка-приглашение:');
 
   const linkEl = document.createElement('a');
@@ -1127,6 +1389,7 @@ async function showOwnContactToken(): Promise<void> {
   linkEl.textContent = inviteLink;
   section.appendChild(linkEl);
 
+  // 3. Copy link button
   const inviteCopyBtn = document.createElement('button');
   inviteCopyBtn.className = 'action-btn invite-copy-btn';
   inviteCopyBtn.textContent = '📋 Скопировать ссылку';
@@ -1137,21 +1400,45 @@ async function showOwnContactToken(): Promise<void> {
   });
   section.appendChild(inviteCopyBtn);
 
-  addLabel('Или код для вставки:');
+  // 4. Web Share API (mobile)
+  if (typeof navigator.share === 'function') {
+    const shareBtn = document.createElement('button');
+    shareBtn.className = 'action-btn invite-copy-btn';
+    shareBtn.textContent = '📤 Поделиться';
+    shareBtn.addEventListener('click', async () => {
+      try { await navigator.share({ url: inviteLink }); } catch { /* user cancelled */ }
+    });
+    section.appendChild(shareBtn);
+  }
+
+  // 5. Alternative sharing methods (disclosure)
+  const altDetails = document.createElement('details');
+  const altSummary = document.createElement('summary');
+  altSummary.textContent = 'Другие способы';
+  altDetails.appendChild(altSummary);
+
+  addLabel('Код для вставки:', altDetails);
 
   const codeEl = document.createElement('code');
   codeEl.className = 'invite-token';
   codeEl.textContent = inviteToken;
-  section.appendChild(codeEl);
+  altDetails.appendChild(codeEl);
 
-  addLabel(`Или в виде «${selectedTheme}»:`);
+  addLabel(`В виде «${selectedTheme}»:`, altDetails);
 
   const stegoDiv = document.createElement('div');
   stegoDiv.className = 'invite-stego';
   stegoDiv.textContent = stegoText;
-  section.appendChild(stegoDiv);
+  altDetails.appendChild(stegoDiv);
 
-  // Profile export/import wrapped in <details>
+  const ownCode = contactCodes.get(u8hex(myPublicKey));
+  if (ownCode) {
+    addLabel(`Код подтверждения: ${ownCode}`, altDetails);
+  }
+
+  section.appendChild(altDetails);
+
+  // 6. Profile export/import wrapped in <details>
   const details = document.createElement('details');
   const summary = document.createElement('summary');
   summary.textContent = 'Дополнительно';
@@ -1172,8 +1459,21 @@ async function showOwnContactToken(): Promise<void> {
   section.appendChild(details);
 
   outputEl.appendChild(section);
+  outputEl.lang = THEMES.find(t => t.id === selectedTheme)?.lang ?? 'ru-RU';
   setCopyableText(stegoText, 'Скопировать текст');
-  ttsText = stegoText;
+
+  // Toggle TTS/translate when disclosure opens/closes
+  altDetails.addEventListener('toggle', () => {
+    if (altDetails.open) {
+      ttsText = stegoText;
+      document.body.classList.remove('invite-card-mode');
+      updateTtsAvailability();
+      updateTranslateAvailability();
+    } else {
+      ttsText = '';
+      document.body.classList.add('invite-card-mode');
+    }
+  });
 
   inputEl.value = '';
   updateStatus('мой контакт');
@@ -1215,6 +1515,8 @@ async function handleAddContact(): Promise<void> {
   setSelectedContactId(contact.id);
   renderContacts();
   refreshContactCodes();
+  renderChat();
+  updatePlaceholder();
   processInput();
 }
 
@@ -1238,6 +1540,7 @@ async function handleDeleteContact(contactId: string): Promise<void> {
   }
   renderContacts();
   renderChat();
+  updatePlaceholder();
   processInput();
 }
 
@@ -1332,6 +1635,16 @@ async function handleCopy(): Promise<void> {
   // Visual feedback
   copyBtn.textContent = '✓ Скопировано';
   setTimeout(() => { copyBtn.textContent = copyLabel; }, 1500);
+
+  // One-time hint explaining "copy = send" model
+  if (copyLabel === 'Скопировать сообщение' && !storageGet(STORAGE.seenCopyHint)) {
+    storageSet(STORAGE.seenCopyHint, '1');
+    const hintEl = document.createElement('div');
+    hintEl.className = 'copy-hint';
+    hintEl.textContent = 'Отправьте через любой мессенджер';
+    statusEl.parentElement!.insertBefore(hintEl, statusEl);
+    setTimeout(() => { hintEl.remove(); }, 4000);
+  }
 }
 
 function updateTtsAvailability(): void {
@@ -1359,6 +1672,52 @@ function handleTts(): void {
       clearInterval(check);
     }
   }, 300);
+}
+
+async function updateTranslateAvailability(): Promise<void> {
+  if (!hasTranslationAPI()) { translateBtn.style.display = 'none'; return; }
+  const themeAtCall = selectedTheme;
+  const theme = THEMES.find(t => t.id === themeAtCall);
+  const lang = theme?.lang ?? 'ru-RU';
+  if (lang.startsWith('ru')) { translateBtn.style.display = 'none'; return; }
+  const sourceLang = lang.split('-')[0];
+  const availability = await canTranslateFrom(sourceLang);
+  if (selectedTheme !== themeAtCall) return; // theme changed during await
+  translateBtn.style.display = availability !== 'unavailable' ? '' : 'none';
+  translateBtn.title = availability === 'downloadable'
+    ? 'Перевести (нужна загрузка модели)'
+    : 'Перевести';
+}
+
+async function handleTranslate(): Promise<void> {
+  if (translationActive) {
+    clearTranslation();
+    return;
+  }
+  const text = ttsText;
+  if (!text) return;
+
+  const themeAtClick = selectedTheme;
+  const textAtClick = text;
+  translateBtn.disabled = true;
+  translateBtn.textContent = '⏳';
+
+  try {
+    const theme = THEMES.find(t => t.id === selectedTheme);
+    const sourceLang = (theme?.lang ?? 'ru-RU').split('-')[0];
+    const translated = await translateText(text, sourceLang);
+    // Guard against stale write if theme or text changed during async translation
+    if (selectedTheme !== themeAtClick || ttsText !== textAtClick) return;
+    translateOutputEl.textContent = translated;
+    translateOutputEl.classList.add('visible');
+    translationActive = true;
+    translateBtn.classList.add('translate-on');
+  } catch {
+    // Progressive enhancement — silently fail
+  } finally {
+    translateBtn.textContent = '🌐';
+    translateBtn.disabled = false;
+  }
 }
 
 async function handleDownload(): Promise<void> {

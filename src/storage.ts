@@ -8,6 +8,7 @@ export const STORAGE = {
   contacts: PREFIX + 'contacts',
   selectedTheme: PREFIX + 'theme',
   selectedContact: PREFIX + 'selected_contact',
+  seenCopyHint: PREFIX + 'seen_copy_hint',
 } as const;
 
 export function storageGet(key: string): string | null {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { u8hex, hexU8, u8toBase64url, base64urlToU8, concatU8, u8eq, contactCode } from '../../src/utils';
+import { u8hex, hexU8, u8toBase64url, base64urlToU8, concatU8, u8eq, contactCode, charCount } from '../../src/utils';
 
 describe('u8hex', () => {
   it('encodes empty array', () => {
@@ -167,6 +167,29 @@ describe('u8eq edge cases (mutation targets)', () => {
   it('single-byte arrays', () => {
     expect(u8eq(new Uint8Array([0]), new Uint8Array([0]))).toBe(true);
     expect(u8eq(new Uint8Array([0]), new Uint8Array([1]))).toBe(false);
+  });
+});
+
+describe('charCount', () => {
+  it('counts BMP Russian text', () => {
+    expect(charCount('Привет')).toBe(6);
+  });
+  it('counts supplementary-plane emoji as single codepoints', () => {
+    // Each emoji is 1 codepoint but 2 UTF-16 code units
+    expect(charCount('😀🎉')).toBe(2);
+    expect('😀🎉'.length).toBe(4); // confirms .length overcounts
+  });
+  it('counts CJK characters', () => {
+    expect(charCount('你好世界')).toBe(4);
+  });
+  it('returns 0 for empty string', () => {
+    expect(charCount('')).toBe(0);
+  });
+  it('counts mixed Russian + emoji', () => {
+    expect(charCount('Привет 😀')).toBe(8);
+  });
+  it('counts ASCII', () => {
+    expect(charCount('hello')).toBe(5);
   });
 });
 

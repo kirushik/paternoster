@@ -14,6 +14,12 @@ The single-field design eliminates modes entirely. The user types or pastes into
 
 The output always appears in a read-only label below the field. There is no "encrypt" button, no "decrypt" button.
 
+**Contextual placeholder.** The textarea placeholder changes based on state (via `updatePlaceholder()`):
+- No contacts: "Вставьте приглашение, чтобы добавить собеседника"
+- Contact selected: "Сообщение для {name}..."
+- "Я" selected: "Вставьте код, ссылку или сообщение — приложение само поймёт"
+- Broadcast mode: "Введите сообщение для публикации" (set by `render()` template)
+
 ## Broadcast Mode
 
 ### Entering and Exiting
@@ -65,6 +71,8 @@ Messages are stored in `sessionStorage` per contact — they survive page reload
 - **Receiving:** When a message from a known contact is decoded, it is immediately committed to chat, the input auto-clears, and the app switches to the sender's conversation.
 - **Unknown senders:** Messages from unknown senders are NOT committed to chat until the contact is saved.
 
+**Empty chat nudge:** When a contact is selected but has no message history yet, the chat area shows a centered hint: "Напишите сообщение ↑" instead of being hidden. This confirms the user is in the right place.
+
 **No chat for self-encryption:** The "Я" view (self-encryption) does not show chat history. It's a notepad, not a conversation.
 
 **Storage key:** `paternoster_chat_${contactId}` in `sessionStorage`.
@@ -90,7 +98,31 @@ The app makes its internal state visible through three coordinated signals:
    - "Скопировать ссылку" — invite link
    - "Скопировать копию" — identity backup blob
 
-3. **Status bar** — unchanged: target · theme · character count · optional sender info
+3. **Status bar** — shows `для {name} · {theme}` by default. Pipeline compression stats (📝→🔒→📤) are displayed in a `.pipeline-detail` span at reduced opacity (`opacity: 0.6`), keeping them visually subtle for casual users while still available for power users who look for them.
+
+4. **Post-copy hint** — on the first successful message copy (`copyLabel === 'Скопировать сообщение'`), a one-time hint appears: "Отправьте через любой мессенджер". Fades in/out over 4 seconds. Stored in `localStorage` via `STORAGE.seenCopyHint` — never shown again. Explains the "copy = send" mental model.
+
+## Theme Picker (Dictionary Selector)
+
+The theme selector (labeled "Словарь") uses a custom dropdown panel instead of a native `<select>`. This provides rich per-theme information to help users choose an encoding style.
+
+**Trigger button.** A compact button in the `.output-actions` row shows the current theme's icon and name (e.g., "☦ БОЖЕ ▾"). Clicking opens the panel.
+
+**Dropdown panel.** A floating panel with 9 theme cards organized in three groups:
+
+| Group | Label | Themes | Rationale |
+|---|---|---|---|
+| Тексты | Prose | КИТАЙ, PATER, БОЖЕ | Model 4096 themes that produce continuous text |
+| Фразы | Phrases | РОССИЯ, СССР, БУХАЮ, TRUMP | Model 16 themes with cultural slogans |
+| Символы | Symbols | 🙂 (emoji), hex | Non-linguistic output |
+
+Each card shows: icon, theme name, a hardcoded sample snippet (~30 chars), and a color-coded expansion badge (×N — the stego expansion ratio, i.e. output chars per input byte). Green for compact (≤×2), gray for medium (≤×10), orange for verbose (>×10).
+
+**Responsive layout.** Cards use `flex: 1 1 160px` with `flex-wrap`, naturally reflowing into 3 columns on wide screens, 2 on medium, 1 on narrow. On mobile (≤480px), the panel becomes a bottom sheet (`position: fixed; bottom: 0`) with single-column cards.
+
+**Interaction.** Click or Enter/Space selects a theme and closes the panel. Arrow keys navigate between cards. Escape closes without changing. Outside click closes. Selection persists to localStorage.
+
+**Broadcast mode.** The panel adopts warm cream tones (`.broadcast-active .theme-panel`) to match the broadcast UI.
 
 ## Dialog System
 
@@ -104,24 +136,36 @@ All interactive prompts use native `<dialog>` elements instead of `window.prompt
 
 The `showDialog()` utility returns a Promise that resolves with field values on confirm or `null` on cancel/escape.
 
+## First Visit
+
+On first visit (no contacts and no invite hash in the URL), the app auto-shows the "Мой контакт" view — the invite card with the user's sharing link. This eliminates the "now what?" moment by immediately presenting the primary action: share the link with someone. If the user arrived via an invite link, `checkHashInvite()` handles import first, so the auto-show does not fire.
+
 ## Contact Exchange Flows
 
 ### Sharing your contact
 
-Tap "Я" in the contact strip. The app shows (output label: "Мой контакт"):
-1. **Verification code** — `XXXX XXXX XXXX XXXX` derived from your public key. A convenience code for quick human comparison out-of-band (64 bits of collision resistance, sufficient for honest verification).
+Tap "Я" in the contact strip (or auto-shown on first visit). The app shows (output label: "Мой контакт"):
+1. **Instruction text** — "Отправьте ссылку собеседнику, чтобы начать переписку". Action-oriented, guides the user.
 2. **Invite link** — `https://domain/#base64url_token`. Clicking opens the app and auto-imports the contact. The hash is cleared from URL after import.
-3. **Compact token** — 46-char base64url string (32-byte key + 2 check bytes). Paste-friendly for any channel.
-4. **Themed text** — the contact token encoded as a prayer/slogan/etc. Steganographic sharing.
-5. **Identity backup** (behind "Дополнительно" disclosure) — "Сохранить профиль" exports the keypair as a passphrase-protected string. "Восстановить профиль" imports it back.
+3. **Copy link button** — "📋 Скопировать ссылку". Primary action.
+4. **Share button** — "📤 Поделиться". Only appears when `navigator.share` is available (mobile browsers). Opens native share sheet.
+5. **Other sharing methods** (behind "Другие способы" disclosure):
+   - **Compact token** — 46-char base64url string (32-byte key + 2 check bytes). Paste-friendly.
+   - **Themed text** — the contact token encoded as a prayer/slogan/etc. Steganographic sharing.
+   - **Verification code** — `XXXX XXXX XXXX XXXX` derived from your public key. For out-of-band verification after exchange (64 bits collision resistance).
+6. **Identity backup** (behind "Дополнительно" disclosure) — "Сохранить профиль" exports the keypair as a passphrase-protected string. "Восстановить профиль" imports it back.
+
+The invite link is the primary sharing mechanism and is always visible. The verification code was moved into the disclosure because it's only useful *after* contact exchange, not during initial sharing.
 
 ### Receiving a contact
 
 Three ways in:
-- **Open invite link** → `checkHashInvite()` fires on page load → dialog for name → saved
+- **Open invite link** → `checkHashInvite()` fires on page load → dialog (title: "Новое приглашение", message: "Кто-то поделился с вами контактом. Дайте ему имя:") → saved
 - **Paste themed contact token** in the main field → auto-detected as type 0x20 → dialog for name
 - **Paste base64url token** in the main field → `tryParseInviteToken()` matches → dialog for name
 - **"+" button** → dialog with token/key field + name field, inline validation
+
+After saving a new contact via the dialog, the app shows a post-save hint: "Отправьте сообщение — так собеседник узнает, кто вы". This explains the INTRO mechanism in human terms — the user needs to reply so their identity propagates back to the sender.
 
 ### Key exchange and auto-introduction
 
@@ -146,6 +190,22 @@ The speaker button (🔊) reads the steganographic output aloud using the browse
 **Graceful degradation.** `hasVoiceForLang(lang)` checks voice availability. The TTS button is disabled (dimmed, `cursor: not-allowed`) when no voice matches the current theme. Re-checks on `voiceschanged` (voices load asynchronously).
 
 **Chat TTS.** Each chat message bubble has a 🔊 button that reads the ciphertext aloud using the message's theme language. Disabled when no matching voice is available.
+
+## Translation Decoy
+
+The globe button (🌐) translates the steganographic output using the browser's on-device Translation API. The КИТАЙ theme produces real CJK characters (U+4E00–U+5DFF) that individually have meanings, so the "translation" produces an entertaining random word salad — similar in spirit to the gibberish prayers and political slogans.
+
+**Progressive enhancement.** The button only appears when the browser supports the `Translator` API (Chrome 138+, on-device, no data sent to servers) AND the current theme has a non-Russian language. Hidden in Firefox/Safari. Themes that get the button: КИТАЙ (zh-CN), TRUMP (en-US), potentially 🙂 (en) — determined dynamically by `canTranslateFrom()`. PATER (la) is unlikely supported.
+
+**Alongside display.** The translation appears in a separate `#translate-output` div below the stego text, with a slide/fade animation. The stego text is never modified — it stays fully visible and selectable above. The button turns blue (`.translate-on` class) to indicate active state. Click again to hide the translation.
+
+**Anti-copy design.** The translation div has `user-select: none`, making it impossible to select with the mouse (even Ctrl+A skips it). The copy button reads `copyableText`, which is only set during encode/decode — the translation text is never in the copy path. Visual distinction (smaller font, gray italic, left border) makes it clear this isn't the message to send.
+
+**Source text.** Translation reads `ttsText` (the stego text), not `outputEl.textContent`. This is critical for the "Я" (self) tab, where `outputEl` contains a rich DOM structure (verification code, invite link, compact token, stego text, buttons). Reading `textContent` would concatenate all of that into garbage. `ttsText` is always set to just the stego portion in both messaging and "Я" mode.
+
+**State clearing.** Translation is cleared on: new input (via `processInputInner`), theme change, and `clearOutput()`. Cached translator instances are disposed on theme change to free resources.
+
+**`lang` attribute.** The output div gets a `lang` attribute matching the theme language on encode, and `lang="ru"` on decode. This is good HTML practice regardless of the translate feature — aids screen readers and browser language detection.
 
 ## Terminology
 

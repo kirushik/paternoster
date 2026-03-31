@@ -33,6 +33,7 @@ main.ts              — Init, UI rendering, event wiring, state machine (proces
 ├── ipfs.ts          — IPFS CIDv0 computation (UnixFS/DAG-PB protobuf + base58btc)
 ├── cid.ts           — CID badge UI (self-fetch + display)
 ├── tts.ts           — SpeechSynthesis wrapper (decoy feature)
+├── translate.ts     — Chrome Translation API wrapper (decoy feature)
 ├── chat.ts          — Session chat history (supports message + broadcast types)
 └── utils.ts         — Hex, base64url, concat, equality, SHA-256 helpers, random ID generation
 ```

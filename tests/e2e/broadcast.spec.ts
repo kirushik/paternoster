@@ -167,8 +167,9 @@ test.describe('broadcast mode auto-detect pasted content', () => {
 
     // Key exchange: Bob adds Alice
     await alice.click('[data-id="self"]');
-    await expect(alice.locator('.invite-token')).toBeVisible();
-    const aliceToken = await alice.locator('.invite-token').textContent();
+    await expect(alice.locator('.invite-link')).toBeVisible();
+    const aliceLink = await alice.locator('.invite-link').getAttribute('href');
+    const aliceToken = aliceLink!.split('#')[1];
 
     await bob.fill('#input', aliceToken!);
     await fillDialogAndConfirm(bob, { 'Имя контакта': 'Alice' });
@@ -176,8 +177,9 @@ test.describe('broadcast mode auto-detect pasted content', () => {
 
     // Alice adds Bob
     await bob.click('[data-id="self"]');
-    await expect(bob.locator('.invite-token')).toBeVisible();
-    const bobToken = await bob.locator('.invite-token').textContent();
+    await expect(bob.locator('.invite-link')).toBeVisible();
+    const bobLink = await bob.locator('.invite-link').getAttribute('href');
+    const bobToken = bobLink!.split('#')[1];
     await alice.fill('#input', bobToken!);
     await fillDialogAndConfirm(alice, { 'Имя контакта': 'Bob' });
 
@@ -242,10 +244,11 @@ test.describe('signed broadcast with identity verification', () => {
     // ── Phase 1: Key exchange — Bob adds Alice as contact ──
 
     await alice.click('[data-id="self"]');
-    await expect(alice.locator('.invite-token')).toBeVisible();
-    const aliceToken = await alice.locator('.invite-token').textContent();
+    await expect(alice.locator('.invite-link')).toBeVisible();
+    const aliceLink2 = await alice.locator('.invite-link').getAttribute('href');
+    const aliceToken2 = aliceLink2!.split('#')[1];
 
-    await bob.fill('#input', aliceToken!);
+    await bob.fill('#input', aliceToken2!);
     await fillDialogAndConfirm(bob, { 'Имя контакта': 'Alice' });
     await expect(bob.locator('.contact-pill', { hasText: 'Alice' })).toBeVisible();
 
@@ -307,9 +310,10 @@ test.describe('signed broadcast with identity verification', () => {
 
     // Key exchange
     await alice.click('[data-id="self"]');
-    await expect(alice.locator('.invite-token')).toBeVisible();
-    const aliceToken = await alice.locator('.invite-token').textContent();
-    await bob.fill('#input', aliceToken!);
+    await expect(alice.locator('.invite-link')).toBeVisible();
+    const aliceLink3 = await alice.locator('.invite-link').getAttribute('href');
+    const aliceToken3 = aliceLink3!.split('#')[1];
+    await bob.fill('#input', aliceToken3!);
     await fillDialogAndConfirm(bob, { 'Имя контакта': 'Alice' });
     await expect(bob.locator('.contact-pill', { hasText: 'Alice' })).toBeVisible();
 

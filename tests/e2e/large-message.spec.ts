@@ -21,8 +21,9 @@ test.describe('large message conversation', () => {
     // ── Key exchange: Bob adds Alice via invite token ──
 
     await alicePage.click('[data-id="self"]');
-    await expect(alicePage.locator('.invite-token')).toBeVisible();
-    const aliceToken = await alicePage.locator('.invite-token').textContent();
+    await expect(alicePage.locator('.invite-link')).toBeVisible();
+    const aliceLink = await alicePage.locator('.invite-link').getAttribute('href');
+    const aliceToken = aliceLink!.split('#')[1];
 
     await bobPage.fill('#input', aliceToken!);
     await fillDialogAndConfirm(bobPage, { 'Имя контакта': 'Alice' });
